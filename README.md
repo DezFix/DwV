@@ -18,6 +18,14 @@ cargo build --release
 
 Бинарник приложения: `target/release/dwv.exe`
 
+## CLI (текущий движок скачивания)
+
+```powershell
+cargo run -p dwv-cli -- https://example.com/file.zip -o file.zip -n 8
+```
+
+Ctrl+C останавливает загрузку; `.part` и `.dwvmeta` сохраняются, повторный запуск продолжит с места обрыва.
+
 ## Структура
 
 ```

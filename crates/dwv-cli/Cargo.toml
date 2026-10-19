@@ -12,3 +12,5 @@ name = "dwv-cli"
 path = "src/main.rs"
 
 [dependencies]
+dwv-core = { path = "../dwv-core" }
+tokio.workspace = true

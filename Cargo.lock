@@ -1096,6 +1096,7 @@ version = "0.1.0"
 dependencies = [
  "dwv-core",
  "dwv-ipc",
+ "dwv-media",
  "rfd",
  "slint",
  "slint-build",

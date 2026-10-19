@@ -17,6 +17,7 @@ tokio.workspace = true
 rfd.workspace = true
 dwv-core = { path = "../dwv-core" }
 dwv-ipc = { path = "../dwv-ipc" }
+dwv-media = { path = "../dwv-media" }
 
 [dev-dependencies]
 tempfile.workspace = true

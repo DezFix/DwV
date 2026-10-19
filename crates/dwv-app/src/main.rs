@@ -1,7 +1,9 @@
 slint::include_modules!();
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use dwv_core::{Database, DownloadSpec, Queue, QueueConfig, QueueEvent, State, StoredDownload};
 use slint::{ComponentHandle, Model, VecModel};
@@ -88,6 +90,94 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    ui.on_download_video({
+        let ui_weak = ui.as_weak();
+        let handle = runtime.handle().clone();
+        let video_seq = Rc::new(Cell::new(0i32));
+        move |url| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let url = url.trim().to_string();
+            if !(url.starts_with("http://") || url.starts_with("https://")) {
+                ui.set_error_text("only http:// and https:// URLs are supported".into());
+                return;
+            }
+            let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            // video rows get far-away negative ids so they never collide with the queue or history
+            let id = -(1_000_000 + video_seq.get());
+            video_seq.set(video_seq.get() + 1);
+            push_item(
+                &ui,
+                DownloadItem {
+                    id,
+                    name: url_host(&url).into(),
+                    progress: 0.0,
+                    detail: "video · starting".into(),
+                    active: false,
+                },
+            );
+            let ui_weak = ui_weak.clone();
+            handle.spawn(async move {
+                let progress_weak = ui_weak.clone();
+                let mut last_emit = Instant::now() - Duration::from_secs(1);
+                let result = dwv_media::download_video(&url, &dir, |progress| {
+                    if last_emit.elapsed() < Duration::from_millis(250) {
+                        return;
+                    }
+                    last_emit = Instant::now();
+                    let ui_weak = progress_weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(ui) = ui_weak.upgrade() else { return };
+                        with_item(&ui, id, |item| {
+                            item.progress = progress
+                                .total
+                                .map(|total| {
+                                    (progress.downloaded as f64 / total.max(1) as f64).min(1.0)
+                                        as f32
+                                })
+                                .unwrap_or(0.0);
+                            let total = progress
+                                .total
+                                .map(|total| format!(" / {}", human_bytes(total)))
+                                .unwrap_or_default();
+                            let speed = match progress.speed_bps {
+                                Some(speed) => format!("{}/s", human_bytes(speed)),
+                                None => "?/s".to_string(),
+                            };
+                            item.detail =
+                                format!("{}{} · {speed}", human_bytes(progress.downloaded), total)
+                                    .into();
+                        });
+                    });
+                })
+                .await;
+                let outcome = match result {
+                    Ok(path) => {
+                        let name = path.and_then(|path| {
+                            path.file_name().map(|n| n.to_string_lossy().into_owned())
+                        });
+                        Ok(name)
+                    }
+                    Err(error) => Err(error.to_string()),
+                };
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = ui_weak.upgrade() else { return };
+                    with_item(&ui, id, |item| match &outcome {
+                        Ok(name) => {
+                            item.progress = 1.0;
+                            if let Some(name) = name {
+                                item.name = name.as_str().into();
+                            }
+                            item.detail = "Finished".into();
+                        }
+                        Err(error) => {
+                            item.detail = format!("Failed: {error}").into();
+                        }
+                    });
+                });
+            });
+        }
+    });
+
     ui.on_cancel_download({
         let queue = queue.clone();
         move |id| queue.cancel(id as u64)
@@ -123,6 +213,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ui.run()?;
     Ok(())
+}
+
+fn push_item(ui: &AppWindow, item: DownloadItem) {
+    let downloads = ui.get_downloads();
+    let Some(model) = downloads.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+        return;
+    };
+    model.insert(0, item);
+}
+
+fn with_item(ui: &AppWindow, id: i32, apply: impl FnOnce(&mut DownloadItem)) {
+    let downloads = ui.get_downloads();
+    let Some(model) = downloads.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+        return;
+    };
+    let index = (0..model.row_count()).find(|&i| model.row_data(i).is_some_and(|d| d.id == id));
+    if let Some(i) = index {
+        let mut item = model.row_data(i).unwrap();
+        apply(&mut item);
+        model.set_row_data(i, item);
+    }
+}
+
+fn url_host(url: &str) -> String {
+    let rest = url.split("://").nth(1).unwrap_or(url);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    if host.is_empty() {
+        "video".to_string()
+    } else {
+        host.to_string()
+    }
 }
 
 fn fill_history(model: &VecModel<DownloadItem>, db: Option<&Database>) {

@@ -35,9 +35,12 @@
 - [ ] Bundle a JS runtime (deno) so YouTube works without Node installed
 - [ ] Checksum verification for tool updates
 
-## Phase 5 - Torrents
+## Phase 5 - Torrents (in progress)
 
-- librqbit engine: `.torrent` and magnet links, file selection, seeding limits
+- [x] `dwv-torrent` on librqbit: magnet links, `.torrent` URLs and local files; `dwv-cli torrent <source> [-d <dir>]` with progress
+- [ ] GUI: torrent source in the add dialog, drag and drop of `.torrent` files
+- [ ] File selection inside a torrent, upload/seed limits
+- [ ] Resume torrents across restarts
 
 ## Phase 6 - Main window, FDM-inspired (not a clone)
 

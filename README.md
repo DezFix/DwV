@@ -35,6 +35,12 @@ cargo run -p dwv-cli -- video https://www.youtube.com/watch?v=... -d D:\Videos
 
 On first use DwV downloads `yt-dlp.exe` and a static ffmpeg build into `%APPDATA%\DwV\bin` (ffmpeg is needed to merge video and audio streams).
 
+Torrents (magnet link, `.torrent` url or local file):
+
+```powershell
+cargo run -p dwv-cli -- torrent "magnet:?xt=urn:btih:..." -d D:\Downloads
+```
+
 ## Layout
 
 ```

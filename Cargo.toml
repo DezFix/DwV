@@ -23,6 +23,7 @@ tempfile = "3"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rfd = "0.17"
 tokio-tungstenite = "0.30"
+librqbit = "9"
 
 [profile.release]
 lto = "thin"

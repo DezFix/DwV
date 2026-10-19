@@ -18,6 +18,9 @@ fn main() -> ExitCode {
     if raw.first().map(String::as_str) == Some("video") {
         return run_video_mode(&raw[1..]);
     }
+    if raw.first().map(String::as_str) == Some("torrent") {
+        return run_torrent_mode(&raw[1..]);
+    }
     let args = match parse_args(&raw) {
         Ok(v) => v,
         Err(msg) => {
@@ -111,6 +114,68 @@ fn run_video_mode(args: &[String]) -> ExitCode {
             }
             Err(e) => {
                 eprintln!("\nvideo download failed: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
+}
+
+fn run_torrent_mode(args: &[String]) -> ExitCode {
+    let mut source = None;
+    let mut dir = PathBuf::from(".");
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-d" | "--dir" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("-d needs a value");
+                    return ExitCode::from(2);
+                };
+                dir = PathBuf::from(value);
+            }
+            other if other.starts_with('-') => {
+                eprintln!("unknown flag: {other}");
+                return ExitCode::from(2);
+            }
+            other => {
+                if source.is_none() {
+                    source = Some(other.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+    let Some(source) = source else {
+        eprintln!("usage: dwv-cli torrent <magnet|url|file.torrent> [-d <dir>]");
+        return ExitCode::from(2);
+    };
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    rt.block_on(async move {
+        let result = dwv_torrent::download_torrent(&source, &dir, |p| {
+            let total = if p.total == 0 { None } else { Some(p.total) };
+            print!(
+                "\r{} / {}  {}/s          ",
+                fmt_size(Some(p.downloaded)),
+                fmt_size(total),
+                fmt_size(Some(p.down_bps))
+            );
+            let _ = std::io::stdout().flush();
+        })
+        .await;
+        match result {
+            Ok(path) => {
+                println!("\rsaved: {}", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("\ntorrent download failed: {e}");
                 ExitCode::FAILURE
             }
         }

@@ -114,6 +114,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     detail: "video · starting".into(),
                     active: false,
                     paused: false,
+                    kind: "video".into(),
+                    state: "Active".into(),
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -169,9 +171,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 item.name = name.as_str().into();
                             }
                             item.detail = "Finished".into();
+                            item.state = "Finished".into();
                         }
                         Err(error) => {
                             item.detail = format!("Failed: {error}").into();
+                            item.state = "Failed".into();
                         }
                     });
                 });
@@ -205,6 +209,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     detail: "torrent · starting".into(),
                     active: false,
                     paused: false,
+                    kind: "torrent".into(),
+                    state: "Active".into(),
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -254,9 +260,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 item.name = name.as_str().into();
                             }
                             item.detail = "Finished".into();
+                            item.state = "Finished".into();
                         }
                         Err(error) => {
                             item.detail = format!("Failed: {error}").into();
+                            item.state = "Failed".into();
                         }
                     });
                 });
@@ -388,32 +396,44 @@ fn history_item(row: StoredDownload) -> DownloadItem {
             .map(|total| (row.downloaded_bytes as f64 / total.max(1) as f64).min(1.0) as f32)
             .unwrap_or(0.0),
     };
-    let detail = match row.state {
-        State::Completed => format!(
-            "Finished · {}",
-            human_bytes(row.total_bytes.unwrap_or(row.downloaded_bytes))
-        ),
-        State::Failed => format!(
-            "Failed: {}",
-            row.error.unwrap_or_else(|| "unknown".to_string())
-        ),
-        State::Cancelled => match row.total_bytes {
-            Some(total) => format!(
-                "Cancelled · {} / {}",
-                human_bytes(row.downloaded_bytes),
-                human_bytes(total)
+    let (detail, state) = match row.state {
+        State::Completed => (
+            format!(
+                "Finished · {}",
+                human_bytes(row.total_bytes.unwrap_or(row.downloaded_bytes))
             ),
-            None => "Cancelled".to_string(),
-        },
-        State::Queued | State::Downloading => "Interrupted".to_string(),
-        State::Paused => match row.total_bytes {
-            Some(total) => format!(
-                "Paused · {} / {}",
-                human_bytes(row.downloaded_bytes),
-                human_bytes(total)
+            "Finished",
+        ),
+        State::Failed => (
+            format!(
+                "Failed: {}",
+                row.error.unwrap_or_else(|| "unknown".to_string())
             ),
-            None => "Paused".to_string(),
-        },
+            "Failed",
+        ),
+        State::Cancelled => (
+            match row.total_bytes {
+                Some(total) => format!(
+                    "Cancelled · {} / {}",
+                    human_bytes(row.downloaded_bytes),
+                    human_bytes(total)
+                ),
+                None => "Cancelled".to_string(),
+            },
+            "Cancelled",
+        ),
+        State::Queued | State::Downloading => ("Interrupted".to_string(), "Interrupted"),
+        State::Paused => (
+            match row.total_bytes {
+                Some(total) => format!(
+                    "Paused · {} / {}",
+                    human_bytes(row.downloaded_bytes),
+                    human_bytes(total)
+                ),
+                None => "Paused".to_string(),
+            },
+            "Paused",
+        ),
     };
     DownloadItem {
         // negative ids keep history rows from colliding with live queue ids
@@ -423,6 +443,8 @@ fn history_item(row: StoredDownload) -> DownloadItem {
         detail: detail.into(),
         active: false,
         paused: false,
+        kind: "file".into(),
+        state: state.into(),
     }
 }
 
@@ -458,6 +480,8 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 detail: detail.into(),
                 active: true,
                 paused: false,
+                kind: "file".into(),
+                state: "Active".into(),
             };
             match index {
                 Some(i) => model.set_row_data(i, item),
@@ -488,18 +512,18 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             model.set_row_data(i, item);
         }
         QueueEvent::Finished { .. } => {
-            finish_item(model, index, |item| {
+            finish_item(model, index, "Finished", |item| {
                 item.progress = 1.0;
                 item.detail = "Finished".into();
             });
         }
         QueueEvent::Failed { error, .. } => {
-            finish_item(model, index, |item| {
+            finish_item(model, index, "Failed", |item| {
                 item.detail = format!("Failed: {error}").into();
             });
         }
         QueueEvent::Cancelled { .. } => {
-            finish_item(model, index, |item| {
+            finish_item(model, index, "Cancelled", |item| {
                 item.detail = "Cancelled".into();
             });
         }
@@ -507,6 +531,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             let Some(i) = index else { return };
             let mut item = model.row_data(i).unwrap();
             item.paused = true;
+            item.state = "Paused".into();
             item.detail = "Paused".into();
             model.set_row_data(i, item);
         }
@@ -516,12 +541,14 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
 fn finish_item(
     model: &VecModel<DownloadItem>,
     index: Option<usize>,
+    state: &str,
     update: impl FnOnce(&mut DownloadItem),
 ) {
     let Some(i) = index else { return };
     let mut item = model.row_data(i).unwrap();
     item.active = false;
     item.paused = false;
+    item.state = state.into();
     update(&mut item);
     model.set_row_data(i, item);
 }

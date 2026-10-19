@@ -7,6 +7,8 @@ export struct DownloadItem {
     detail: string,
     active: bool,
     paused: bool,
+    kind: string,
+    state: string,
 }
 
 export component AppWindow inherits Window {
@@ -115,24 +117,25 @@ export component AppWindow inherits Window {
             vertical-stretch: 1;
 
             for item in root.downloads : Rectangle {
-                height: 64px;
-                border-radius: 8px;
+                height: 52px;
                 background: #f4f4f6;
+                border-radius: 6px;
 
                 HorizontalBox {
-                    padding: 10px;
-                    spacing: 12px;
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 10px;
 
                     VerticalBox {
-                        vertical-stretch: 1;
-                        horizontal-stretch: 1;
                         alignment: center;
-                        spacing: 4px;
+                        horizontal-stretch: 1;
+                        spacing: 2px;
 
                         Text {
                             text: item.name;
                             color: #1f2328;
                             font-weight: 600;
+                            font-size: 14px;
                             overflow: elide;
                         }
 
@@ -140,10 +143,15 @@ export component AppWindow inherits Window {
                             text: item.detail;
                             color: #666666;
                             font-size: 12px;
+                            overflow: elide;
                         }
+                    }
+
+                    VerticalBox {
+                        alignment: center;
+                        width: 140px;
 
                         Rectangle {
-                            width: 100%;
                             height: 8px;
                             border-radius: 4px;
                             background: #dcdfe6;
@@ -156,6 +164,15 @@ export component AppWindow inherits Window {
                         }
                     }
 
+                    Text {
+                        width: 84px;
+                        text: item.state;
+                        color: #444444;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
                     Button {
                         text: item.paused ? "Resume" : "Pause";
                         visible: item.active;
@@ -166,7 +183,7 @@ export component AppWindow inherits Window {
 
                     Button {
                         text: "Cancel";
-                        enabled: item.active;
+                        visible: item.active;
                         clicked => {
                             root.cancel-download(item.id);
                         }

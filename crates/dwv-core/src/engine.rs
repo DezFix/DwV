@@ -353,23 +353,40 @@ async fn run(
 
     match result {
         Ok(Outcome::Completed) => {
+            send_final_progress(&tx, &done, total).await;
             finalize(&part, &spec.target, &tx).await;
             let _ = fs::remove_file(&meta_path).await;
             Ok(Outcome::Completed)
         }
         Ok(Outcome::Cancelled) => {
+            send_final_progress(&tx, &done, total).await;
             if info.segmented {
                 let _ = persist_meta(&meta_path, &build_meta()).await;
             }
             Ok(Outcome::Cancelled)
         }
         Err(e) => {
+            send_final_progress(&tx, &done, total).await;
             if info.segmented {
                 let _ = persist_meta(&meta_path, &build_meta()).await;
             }
             Err(e)
         }
     }
+}
+
+async fn send_final_progress(
+    tx: &mpsc::Sender<Event>,
+    done: &[Arc<AtomicU64>],
+    total: Option<u64>,
+) {
+    let _ = tx
+        .send(Event::Progress {
+            downloaded: sum_done(done),
+            total,
+            speed_bps: 0,
+        })
+        .await;
 }
 
 async fn finalize(part: &Path, target: &Path, tx: &mpsc::Sender<Event>) {

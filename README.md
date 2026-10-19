@@ -1,50 +1,50 @@
 # DwV
 
-Менеджер загрузок на Rust с перехватом файлов из браузера.
+Download manager written in Rust with file interception from the browser.
 
-- Сегментное скачивание с докачкой (HTTP/HTTPS)
-- Расширения для Chrome и Firefox: перехват загрузок, контекстное меню, галерея медиа со страницы
-- Видео с любых сайтов через yt-dlp (автообновление при запуске)
-- Торренты через librqbit
-- Интерфейс на Slint, трей, инсталлятор для Windows
+- Segmented downloads with resume (HTTP/HTTPS)
+- Chrome and Firefox extensions: download interception, context menu, media gallery for the current page
+- Video from any site via yt-dlp (updates itself on start)
+- BitTorrent via librqbit
+- Slint UI, tray icon, Windows installer
 
-Статус: ранняя разработка (Фаза 0 — каркас).
+Status: early development. The download engine is in place (segments, queue, speed limit, SQLite history); GUI, extensions, video and torrents are next.
 
-## Сборка
+## Build
 
 ```powershell
 cargo build --release
 ```
 
-Бинарник приложения: `target/release/dwv.exe`
+Application binary: `target/release/dwv.exe`
 
-## CLI (текущий движок скачивания)
+## CLI (current download engine)
 
 ```powershell
 cargo run -p dwv-cli -- https://example.com/file.zip -o file.zip -n 8
 cargo run -p dwv-cli -- <url1> <url2> <url3> -j 3
 ```
 
-`-n` — соединений на файл, `-j` — параллельных загрузок в очереди. Ctrl+C останавливает; `.part` и `.dwvmeta` сохраняются, повторный запуск продолжит с места обрыва.
+`-n` is connections per file, `-j` is parallel downloads in the queue. Ctrl+C stops the download; `.part` and `.dwvmeta` files are kept, and running the same command again resumes from where it stopped.
 
-## Структура
+## Layout
 
 ```
 crates/
-  dwv-core/     движок скачивания (HTTP-сегменты, очередь, докачка)
+  dwv-core/     download engine (HTTP segments, queue, resume, SQLite history)
   dwv-media/    yt-dlp / ffmpeg
   dwv-torrent/  librqbit
-  dwv-ipc/      native messaging для расширений + локальный WS API
+  dwv-ipc/      native messaging for extensions + local WS API
   dwv-app/      GUI (Slint)
-  dwv-cli/      headless-версия для тестов и скриптов
-ui/             Slint-файлы
-extension/      расширения Chrome/Firefox
+  dwv-cli/      headless build for tests and scripts
+ui/             Slint files
+extension/      Chrome/Firefox extensions
 ```
 
-## Лицензия
+## License
 
-GPL-3.0-or-later, см. [LICENSE](LICENSE)
+GPL-3.0-or-later, see [LICENSE](LICENSE)
 
-## Донаты
+## Support
 
 https://ko-fi.com/dezfix

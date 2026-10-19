@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use tokio::sync::{mpsc, oneshot};
 
+use crate::db::{Database, State};
 use crate::engine::{Download, DownloadController, DownloadSpec, Event, Outcome};
 use crate::error::Error;
 use crate::limiter::SpeedLimiter;
@@ -65,10 +66,10 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub fn start(config: QueueConfig) -> (Queue, mpsc::Receiver<QueueEvent>) {
+    pub fn start(config: QueueConfig, db: Option<Database>) -> (Queue, mpsc::Receiver<QueueEvent>) {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (ev_tx, ev_rx) = mpsc::channel(256);
-        tokio::spawn(supervisor(config, cmd_rx, ev_tx));
+        tokio::spawn(supervisor(config, cmd_rx, ev_tx, db));
         (Queue { cmd_tx }, ev_rx)
     }
 
@@ -103,24 +104,33 @@ async fn supervisor(
     mut config: QueueConfig,
     mut cmd_rx: mpsc::UnboundedReceiver<Command>,
     ev_tx: mpsc::Sender<QueueEvent>,
+    db: Option<Database>,
 ) {
     config.max_parallel = config.max_parallel.max(1);
     let limiter = SpeedLimiter::new(config.speed_limit);
-    let mut pending: VecDeque<(u64, DownloadSpec)> = VecDeque::new();
+    let mut pending: VecDeque<(u64, DownloadSpec, Option<i64>)> = VecDeque::new();
     let mut running: HashMap<u64, DownloadController> = HashMap::new();
     let mut next_id = 1u64;
     let (done_tx, mut done_rx) = mpsc::unbounded_channel::<u64>();
 
     loop {
         while running.len() < config.max_parallel {
-            let Some((id, mut spec)) = pending.pop_front() else {
+            let Some((id, mut spec, db_row)) = pending.pop_front() else {
                 break;
             };
             spec.limiter = Some(limiter.clone());
             let download = Download::start(spec);
             let (events, controller, task) = download.into_parts();
             running.insert(id, controller);
-            spawn_relay(id, events, task, ev_tx.clone(), done_tx.clone());
+            spawn_relay(
+                id,
+                events,
+                task,
+                ev_tx.clone(),
+                done_tx.clone(),
+                db.clone(),
+                db_row,
+            );
         }
 
         tokio::select! {
@@ -129,13 +139,26 @@ async fn supervisor(
                 Some(Command::Add { spec, reply }) => {
                     let id = next_id;
                     next_id += 1;
-                    pending.push_back((id, spec));
+                    // db failures must not block downloads
+                    let db_row = db.as_ref().and_then(|db| db.insert(&spec).ok());
+                    pending.push_back((id, spec, db_row));
                     let _ = reply.send(id);
                 }
                 Some(Command::Cancel(id)) => {
                     let before = pending.len();
-                    pending.retain(|(pid, _)| *pid != id);
+                    let mut cancelled_row = None;
+                    pending.retain(|(pid, _, row)| {
+                        if *pid == id {
+                            cancelled_row = *row;
+                            false
+                        } else {
+                            true
+                        }
+                    });
                     if pending.len() != before {
+                        if let (Some(db), Some(row)) = (db.as_ref(), cancelled_row) {
+                            let _ = db.finish(row, State::Cancelled);
+                        }
                         let _ = ev_tx.send(QueueEvent::Cancelled { id }).await;
                     } else if let Some(controller) = running.get(&id) {
                         controller.cancel();
@@ -162,9 +185,26 @@ fn spawn_relay(
     task: tokio::task::JoinHandle<Result<Outcome, Error>>,
     ev_tx: mpsc::Sender<QueueEvent>,
     done_tx: mpsc::UnboundedSender<u64>,
+    db: Option<Database>,
+    db_row: Option<i64>,
 ) {
     tokio::spawn(async move {
+        let mut trying = false;
         while let Some(event) = events.recv().await {
+            if let (Some(db), Some(row)) = (db.as_ref(), db_row) {
+                match &event {
+                    Event::Started { .. } if !trying => {
+                        trying = true;
+                        let _ = db.set_state(row, State::Downloading);
+                    }
+                    Event::Progress {
+                        downloaded, total, ..
+                    } => {
+                        let _ = db.set_progress(row, *downloaded, *total);
+                    }
+                    _ => {}
+                }
+            }
             let queue_event = match event {
                 Event::Started {
                     total,
@@ -204,6 +244,21 @@ fn spawn_relay(
                 error: e.to_string(),
             }),
         };
+        if let (Some(db), Some(row)) = (db.as_ref(), db_row) {
+            match &summary {
+                None => {
+                    let _ = db.finish(row, State::Completed);
+                }
+                Some(QueueEvent::Cancelled { .. }) => {
+                    let _ = db.finish(row, State::Cancelled);
+                }
+                Some(QueueEvent::Failed { error, .. }) => {
+                    let _ = db.set_error(row, error);
+                    let _ = db.finish(row, State::Failed);
+                }
+                _ => {}
+            }
+        }
         if let Some(queue_event) = summary {
             let _ = ev_tx.send(queue_event).await;
         }

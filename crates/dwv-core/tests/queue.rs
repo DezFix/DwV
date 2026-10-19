@@ -11,10 +11,13 @@ async fn queue_limits_parallel_jobs() {
     let server = start_server(body, true, Duration::from_millis(40)).await;
     let dir = tempfile::tempdir().unwrap();
 
-    let (queue, mut events) = Queue::start(QueueConfig {
-        max_parallel: 2,
-        speed_limit: None,
-    });
+    let (queue, mut events) = Queue::start(
+        QueueConfig {
+            max_parallel: 2,
+            speed_limit: None,
+        },
+        None,
+    );
     for i in 0..3 {
         let target = dir.path().join(format!("file{i}.bin"));
         queue.add(spec_for(&server, &target, 1)).await.unwrap();
@@ -56,10 +59,13 @@ async fn cancel_pending_job_skips_it() {
     let server = start_server(body, true, Duration::from_millis(30)).await;
     let dir = tempfile::tempdir().unwrap();
 
-    let (queue, mut events) = Queue::start(QueueConfig {
-        max_parallel: 1,
-        speed_limit: None,
-    });
+    let (queue, mut events) = Queue::start(
+        QueueConfig {
+            max_parallel: 1,
+            speed_limit: None,
+        },
+        None,
+    );
     let target1 = dir.path().join("a.bin");
     let target2 = dir.path().join("b.bin");
     let id1 = queue.add(spec_for(&server, &target1, 1)).await.unwrap();

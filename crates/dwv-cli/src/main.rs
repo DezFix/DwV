@@ -101,10 +101,13 @@ async fn run_single(url: String, target: PathBuf, connections: usize) -> ExitCod
 }
 
 async fn run_many(urls: Vec<String>, connections: usize, parallel: usize) -> ExitCode {
-    let (queue, mut events) = Queue::start(QueueConfig {
-        max_parallel: parallel,
-        speed_limit: None,
-    });
+    let (queue, mut events) = Queue::start(
+        QueueConfig {
+            max_parallel: parallel,
+            speed_limit: None,
+        },
+        None,
+    );
 
     let mut targets: HashMap<u64, PathBuf> = HashMap::new();
     let mut queue_ids: Vec<u64> = Vec::new();

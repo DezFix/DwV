@@ -19,6 +19,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = runtime.enter();
     let (queue, mut events) = Queue::start(QueueConfig::default(), db.clone());
 
+    let (ipc_tx, mut ipc_rx) = tokio::sync::mpsc::unbounded_channel();
+    runtime.spawn(async move {
+        if let Err(error) = dwv_ipc::serve(dwv_ipc::DEFAULT_PORT, ipc_tx).await {
+            eprintln!("browser integration disabled: {error}");
+        }
+    });
+
+    let ui_weak = ui.as_weak();
+    let ipc_queue = queue.clone();
+    let ipc_handle = runtime.handle().clone();
+    runtime.spawn(async move {
+        while let Some(request) = ipc_rx.recv().await {
+            let dwv_ipc::Request::Add {
+                url,
+                filename,
+                referrer,
+            } = request
+            else {
+                continue;
+            };
+            let ui_weak = ui_weak.clone();
+            let queue = ipc_queue.clone();
+            let handle = ipc_handle.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = ui_weak.upgrade() else { return };
+                let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+                match spec_from_browser(&url, filename.as_deref(), referrer.as_deref(), &dir) {
+                    Ok(spec) => {
+                        handle.spawn(async move {
+                            let _ = queue.add(spec).await;
+                        });
+                    }
+                    Err(error) => ui.set_error_text(error.into()),
+                }
+            });
+        }
+    });
+
     let ui_weak = ui.as_weak();
     runtime.spawn(async move {
         while let Some(event) = events.recv().await {
@@ -249,6 +287,23 @@ fn spec_from_url(url: &str, dir: &Path) -> Result<DownloadSpec, String> {
     Ok(spec)
 }
 
+fn spec_from_browser(
+    url: &str,
+    filename: Option<&str>,
+    referrer: Option<&str>,
+    dir: &Path,
+) -> Result<DownloadSpec, String> {
+    let mut spec = spec_from_url(url, dir)?;
+    if let Some(name) = filename {
+        spec.target = unique_path(&dir.join(sanitize(name)));
+    }
+    if let Some(referrer) = referrer.filter(|r| !r.is_empty()) {
+        spec.headers
+            .push(("Referer".to_string(), referrer.to_string()));
+    }
+    Ok(spec)
+}
+
 fn sanitize(name: &str) -> String {
     let cleaned: String = name
         .chars()
@@ -359,5 +414,25 @@ mod tests {
         std::fs::write(dir.path().join("file.zip"), b"x").unwrap();
         let spec = spec_from_url("https://example.com/file.zip", dir.path()).unwrap();
         assert_eq!(spec.target, dir.path().join("file (1).zip"));
+    }
+
+    #[test]
+    fn browser_spec_uses_filename_and_referrer() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = spec_from_browser(
+            "https://example.com/download?id=1",
+            Some("Video (1080p).mp4"),
+            Some("https://example.com/watch"),
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(spec.target, dir.path().join("Video (1080p).mp4"));
+        assert_eq!(
+            spec.headers,
+            vec![(
+                "Referer".to_string(),
+                "https://example.com/watch".to_string()
+            )]
+        );
     }
 }

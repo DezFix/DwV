@@ -22,6 +22,7 @@ thiserror = "2"
 tempfile = "3"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rfd = "0.17"
+tokio-tungstenite = "0.30"
 
 [profile.release]
 lto = "thin"

@@ -16,10 +16,13 @@
 - Slint window: URL field, download list with progress and speed, cancel
 - History from SQLite, save folder picker
 
-## Phase 3 - Browser integration
+## Phase 3 - Browser integration (in progress)
 
-- Chrome (MV3) and Firefox extensions: download interception, context menu, media list on page
-- Local WebSocket API + native messaging host registration for wake-up
+- [x] Chrome (MV3) extension in `extension/chrome`: intercepts common file types, right-click menu
+- [x] Local WebSocket API `ws://127.0.0.1:41763` in `dwv-ipc` (origin-checked, only extension and native clients)
+- [ ] Firefox extension (MV3 background scripts)
+- [ ] Native messaging host: wake up / launch DwV when a download comes in while the app is closed
+- [ ] Extension options: choose intercepted file types, notifications
 
 ## Phase 4 - Video (yt-dlp)
 

@@ -55,7 +55,6 @@ export component AppWindow inherits Window {
 
             Text {
                 text: "Save to:";
-                color: #666666;
                 vertical-alignment: center;
             }
 
@@ -102,11 +101,13 @@ export component AppWindow inherits Window {
 
                     VerticalBox {
                         vertical-stretch: 1;
+                        horizontal-stretch: 1;
                         alignment: center;
                         spacing: 4px;
 
                         Text {
                             text: item.name;
+                            color: #1f2328;
                             font-weight: 600;
                             overflow: elide;
                         }
@@ -118,6 +119,7 @@ export component AppWindow inherits Window {
                         }
 
                         Rectangle {
+                            width: 100%;
                             height: 8px;
                             border-radius: 4px;
                             background: #dcdfe6;

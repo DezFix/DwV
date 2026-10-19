@@ -277,10 +277,10 @@ fn load_save_dir(db: Option<&Database>) -> PathBuf {
 }
 
 fn default_download_dir() -> PathBuf {
+    // engine creates the directory on first download
     std::env::var_os("USERPROFILE")
         .map(PathBuf::from)
         .map(|home| home.join("Downloads"))
-        .filter(|dir| dir.is_dir())
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 

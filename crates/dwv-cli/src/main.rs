@@ -15,6 +15,9 @@ struct Args {
 
 fn main() -> ExitCode {
     let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.first().map(String::as_str) == Some("video") {
+        return run_video_mode(&raw[1..]);
+    }
     let args = match parse_args(&raw) {
         Ok(v) => v,
         Err(msg) => {
@@ -47,6 +50,71 @@ async fn run(args: Args) -> ExitCode {
     } else {
         run_many(args.urls, args.connections, args.parallel).await
     }
+}
+
+fn run_video_mode(args: &[String]) -> ExitCode {
+    let mut url = None;
+    let mut dir = PathBuf::from(".");
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-d" | "--dir" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("-d needs a value");
+                    return ExitCode::from(2);
+                };
+                dir = PathBuf::from(value);
+            }
+            other if other.starts_with('-') => {
+                eprintln!("unknown flag: {other}");
+                return ExitCode::from(2);
+            }
+            other => {
+                if url.is_none() {
+                    url = Some(other.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+    let Some(url) = url else {
+        eprintln!("usage: dwv-cli video <url> [-d <dir>]");
+        return ExitCode::from(2);
+    };
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    rt.block_on(async move {
+        let result = dwv_media::download_video(&url, &dir, |p| {
+            print!(
+                "\r{} / {}  {}/s          ",
+                fmt_size(Some(p.downloaded)),
+                fmt_size(p.total),
+                fmt_size(p.speed_bps)
+            );
+            let _ = std::io::stdout().flush();
+        })
+        .await;
+        match result {
+            Ok(Some(path)) => {
+                println!("\rsaved: {}", path.display());
+                ExitCode::SUCCESS
+            }
+            Ok(None) => {
+                println!("\rdone");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("\nvideo download failed: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    })
 }
 
 async fn run_single(url: String, target: PathBuf, connections: usize) -> ExitCode {

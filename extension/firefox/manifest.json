@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "DwV",
+  "version": "0.1.0",
+  "description": "Send downloads to the DwV download manager",
+  "permissions": ["downloads", "contextMenus"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dwv@dezfix.github.io",
+      "strict_min_version": "115.0"
+    }
+  }
+}

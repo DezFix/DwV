@@ -27,6 +27,14 @@ cargo run -p dwv-cli -- <url1> <url2> <url3> -j 3
 
 `-n` is connections per file, `-j` is parallel downloads in the queue. Ctrl+C stops the download; `.part` and `.dwvmeta` files are kept, and running the same command again resumes from where it stopped.
 
+Video via yt-dlp:
+
+```powershell
+cargo run -p dwv-cli -- video https://www.youtube.com/watch?v=... -d D:\Videos
+```
+
+On first use DwV downloads `yt-dlp.exe` and a static ffmpeg build into `%APPDATA%\DwV\bin` (ffmpeg is needed to merge video and audio streams).
+
 ## Layout
 
 ```

@@ -13,4 +13,5 @@ path = "src/main.rs"
 
 [dependencies]
 dwv-core = { path = "../dwv-core" }
+dwv-media = { path = "../dwv-media" }
 tokio.workspace = true

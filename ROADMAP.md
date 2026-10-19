@@ -19,15 +19,21 @@
 ## Phase 3 - Browser integration (in progress)
 
 - [x] Chrome (MV3) extension in `extension/chrome`: intercepts common file types, right-click menu
+- [x] Firefox (MV3) extension in `extension/firefox`
 - [x] Local WebSocket API `ws://127.0.0.1:41763` in `dwv-ipc` (origin-checked, only extension and native clients)
-- [ ] Firefox extension (MV3 background scripts)
-- [ ] Native messaging host: wake up / launch DwV when a download comes in while the app is closed
 - [ ] Extension options: choose intercepted file types, notifications
+- Native messaging host (launch DwV when closed) moved to Phase 7: it needs a stable
+  extension ID, which means a signing key in the manifests and registration done by the installer
 
-## Phase 4 - Video (yt-dlp)
+## Phase 4 - Video (yt-dlp) (in progress)
 
-- Sidecar yt-dlp with self-update, format picker, ffmpeg bundling for merge
-- Site support: any yt-dlp extractor
+- [x] `dwv-media`: downloads yt-dlp and an LGPL ffmpeg build into `%APPDATA%\DwV\bin` on first use
+- [x] `dwv-cli video <url> [-d <dir>]` with live progress, video+audio merged by ffmpeg
+- [ ] GUI: video button and per-row detection
+- [ ] Media gallery for the current page in the extension (list formats, pick quality)
+- [ ] Format picker (resolution), playlist confirmation
+- [ ] Bundle a JS runtime (deno) so YouTube works without Node installed
+- [ ] Checksum verification for tool updates
 
 ## Phase 5 - Torrents
 

@@ -178,6 +178,90 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    ui.on_download_torrent({
+        let ui_weak = ui.as_weak();
+        let handle = runtime.handle().clone();
+        let torrent_seq = Rc::new(Cell::new(0i32));
+        move |source| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let source = source.trim().to_string();
+            if !(source.starts_with("magnet:")
+                || source.starts_with("http://")
+                || source.starts_with("https://"))
+            {
+                ui.set_error_text("torrent source must be a magnet link or a .torrent URL".into());
+                return;
+            }
+            let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            let id = -(2_000_000 + torrent_seq.get());
+            torrent_seq.set(torrent_seq.get() + 1);
+            push_item(
+                &ui,
+                DownloadItem {
+                    id,
+                    name: torrent_label(&source).into(),
+                    progress: 0.0,
+                    detail: "torrent · starting".into(),
+                    active: false,
+                },
+            );
+            let ui_weak = ui_weak.clone();
+            handle.spawn(async move {
+                let progress_weak = ui_weak.clone();
+                let mut last_emit = Instant::now() - Duration::from_secs(1);
+                let result = dwv_torrent::download_torrent(&source, &dir, |progress| {
+                    if last_emit.elapsed() < Duration::from_millis(250) {
+                        return;
+                    }
+                    last_emit = Instant::now();
+                    let ui_weak = progress_weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(ui) = ui_weak.upgrade() else { return };
+                        with_item(&ui, id, |item| {
+                            if progress.total == 0 {
+                                item.detail = format!(
+                                    "getting metadata · {}/s",
+                                    human_bytes(progress.down_bps)
+                                )
+                                .into();
+                                return;
+                            }
+                            item.progress = (progress.downloaded as f64 / progress.total as f64)
+                                .min(1.0) as f32;
+                            item.detail = format!(
+                                "{} / {} · {}/s",
+                                human_bytes(progress.downloaded),
+                                human_bytes(progress.total),
+                                human_bytes(progress.down_bps)
+                            )
+                            .into();
+                        });
+                    });
+                })
+                .await;
+                let outcome = match result {
+                    Ok(path) => Ok(path.file_name().map(|n| n.to_string_lossy().into_owned())),
+                    Err(error) => Err(error.to_string()),
+                };
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = ui_weak.upgrade() else { return };
+                    with_item(&ui, id, |item| match &outcome {
+                        Ok(name) => {
+                            item.progress = 1.0;
+                            if let Some(name) = name {
+                                item.name = name.as_str().into();
+                            }
+                            item.detail = "Finished".into();
+                        }
+                        Err(error) => {
+                            item.detail = format!("Failed: {error}").into();
+                        }
+                    });
+                });
+            });
+        }
+    });
+
     ui.on_cancel_download({
         let queue = queue.clone();
         move |id| queue.cancel(id as u64)
@@ -243,6 +327,19 @@ fn url_host(url: &str) -> String {
         "video".to_string()
     } else {
         host.to_string()
+    }
+}
+
+fn torrent_label(source: &str) -> String {
+    if source.starts_with("magnet:") {
+        return "magnet link".to_string();
+    }
+    let no_query = source.split(['?', '#']).next().unwrap_or(source);
+    let last = no_query.rsplit('/').next().unwrap_or("").trim();
+    if last.is_empty() {
+        "torrent".to_string()
+    } else {
+        last.to_string()
     }
 }
 

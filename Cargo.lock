@@ -1530,6 +1530,7 @@ dependencies = [
  "dwv-core",
  "dwv-ipc",
  "dwv-media",
+ "dwv-torrent",
  "rfd",
  "slint",
  "slint-build",

@@ -19,6 +19,7 @@ export component AppWindow inherits Window {
 
     callback download-url(string);
     callback download-video(string);
+    callback download-torrent(string);
     callback cancel-download(int);
     callback choose-folder();
 
@@ -55,6 +56,16 @@ export component AppWindow inherits Window {
                 clicked => {
                     if (url-field.text != "") {
                         root.download-video(url-field.text);
+                        url-field.text = "";
+                    }
+                }
+            }
+
+            Button {
+                text: "Torrent";
+                clicked => {
+                    if (url-field.text != "") {
+                        root.download-torrent(url-field.text);
                         url-field.text = "";
                     }
                 }

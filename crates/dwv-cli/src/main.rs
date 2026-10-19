@@ -109,17 +109,13 @@ async fn run_many(urls: Vec<String>, connections: usize, parallel: usize) -> Exi
         None,
     );
 
-    let mut targets: HashMap<u64, PathBuf> = HashMap::new();
     let mut queue_ids: Vec<u64> = Vec::new();
     for url in &urls {
         let target = default_filename(url);
         let mut spec = DownloadSpec::new(url.clone(), &target);
         spec.connections = connections;
         match queue.add(spec).await {
-            Ok(id) => {
-                queue_ids.push(id);
-                targets.insert(id, target);
-            }
+            Ok(id) => queue_ids.push(id),
             Err(e) => {
                 eprintln!("failed to queue {url}: {e}");
                 return ExitCode::FAILURE;
@@ -138,7 +134,7 @@ async fn run_many(urls: Vec<String>, connections: usize, parallel: usize) -> Exi
         }
     });
 
-    let total = targets.len();
+    let total = queue_ids.len();
     let mut done = 0usize;
     let mut failed = 0usize;
     let mut last_print: HashMap<u64, Instant> = HashMap::new();
@@ -149,13 +145,14 @@ async fn run_many(urls: Vec<String>, connections: usize, parallel: usize) -> Exi
         match event {
             QueueEvent::Started {
                 id,
+                path,
                 total,
                 connections,
                 resumed,
             } => {
-                let name = display_name(&targets, id);
                 println!(
-                    "[{id}] {name}: {}  connections: {connections}  resumed: {resumed}",
+                    "[{id}] {}: {}  connections: {connections}  resumed: {resumed}",
+                    path.display(),
                     fmt_size(total)
                 );
             }
@@ -199,13 +196,6 @@ async fn run_many(urls: Vec<String>, connections: usize, parallel: usize) -> Exi
     } else {
         ExitCode::FAILURE
     }
-}
-
-fn display_name(targets: &HashMap<u64, PathBuf>, id: u64) -> String {
-    targets
-        .get(&id)
-        .map(|p| p.display().to_string())
-        .unwrap_or_default()
 }
 
 fn parse_args(args: &[String]) -> Result<Args, String> {

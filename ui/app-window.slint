@@ -1,21 +1,116 @@
+import { Button, HorizontalBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+
+export struct DownloadItem {
+    id: int,
+    name: string,
+    progress: float,
+    detail: string,
+}
+
 export component AppWindow inherits Window {
     title: "DwV";
-    width: 800px;
-    height: 500px;
+    width: 760px;
+    height: 520px;
 
-    VerticalLayout {
-        alignment: center;
-        spacing: 8px;
+    in-out property <[DownloadItem]> downloads;
+    in-out property <string> error-text;
 
-        Text {
-            text: "DwV";
-            font-size: 32px;
-            horizontal-alignment: center;
+    callback download-url(string);
+    callback cancel-download(int);
+
+    VerticalBox {
+        padding: 14px;
+        spacing: 10px;
+
+        HorizontalBox {
+            spacing: 8px;
+
+            url-field := LineEdit {
+                placeholder-text: "Paste a URL and press Download";
+                edited => {
+                    root.error-text = "";
+                }
+                accepted => {
+                    root.download-url(self.text);
+                    self.text = "";
+                }
+            }
+
+            Button {
+                text: "Download";
+                clicked => {
+                    if (url-field.text != "") {
+                        root.download-url(url-field.text);
+                        url-field.text = "";
+                    }
+                }
+            }
         }
 
-        Text {
-            text: "Download manager, early development";
+        if root.error-text != "" : Text {
+            text: root.error-text;
+            color: #c0392b;
+            font-size: 13px;
+        }
+
+        if root.downloads.length == 0 : Text {
+            text: "No downloads yet";
+            color: #888888;
             horizontal-alignment: center;
+            vertical-alignment: center;
+            vertical-stretch: 1;
+        }
+
+        ListView {
+            vertical-stretch: 1;
+
+            for item in root.downloads : Rectangle {
+                height: 64px;
+                border-radius: 8px;
+                background: #f4f4f6;
+
+                HorizontalBox {
+                    padding: 10px;
+                    spacing: 12px;
+
+                    VerticalBox {
+                        vertical-stretch: 1;
+                        alignment: center;
+                        spacing: 4px;
+
+                        Text {
+                            text: item.name;
+                            font-weight: 600;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: item.detail;
+                            color: #666666;
+                            font-size: 12px;
+                        }
+
+                        Rectangle {
+                            height: 8px;
+                            border-radius: 4px;
+                            background: #dcdfe6;
+
+                            Rectangle {
+                                width: parent.width * item.progress;
+                                border-radius: 4px;
+                                background: #3b82f6;
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: "Cancel";
+                        clicked => {
+                            root.cancel-download(item.id);
+                        }
+                    }
+                }
+            }
         }
     }
 }

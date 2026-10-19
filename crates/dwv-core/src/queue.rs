@@ -27,6 +27,7 @@ impl Default for QueueConfig {
 pub enum QueueEvent {
     Started {
         id: u64,
+        path: PathBuf,
         total: Option<u64>,
         connections: usize,
         resumed: bool,
@@ -119,17 +120,19 @@ async fn supervisor(
                 break;
             };
             spec.limiter = Some(limiter.clone());
+            let target = spec.target.clone();
+            let db_ctx = db_row.and_then(|row| db.as_ref().map(|db| (db.clone(), row)));
             let download = Download::start(spec);
             let (events, controller, task) = download.into_parts();
             running.insert(id, controller);
             spawn_relay(
                 id,
+                target,
                 events,
                 task,
                 ev_tx.clone(),
                 done_tx.clone(),
-                db.clone(),
-                db_row,
+                db_ctx,
             );
         }
 
@@ -181,26 +184,26 @@ async fn supervisor(
 
 fn spawn_relay(
     id: u64,
+    target: PathBuf,
     mut events: mpsc::Receiver<Event>,
     task: tokio::task::JoinHandle<Result<Outcome, Error>>,
     ev_tx: mpsc::Sender<QueueEvent>,
     done_tx: mpsc::UnboundedSender<u64>,
-    db: Option<Database>,
-    db_row: Option<i64>,
+    db: Option<(Database, i64)>,
 ) {
     tokio::spawn(async move {
         let mut trying = false;
         while let Some(event) = events.recv().await {
-            if let (Some(db), Some(row)) = (db.as_ref(), db_row) {
+            if let Some((db, row)) = db.as_ref() {
                 match &event {
                     Event::Started { .. } if !trying => {
                         trying = true;
-                        let _ = db.set_state(row, State::Downloading);
+                        let _ = db.set_state(*row, State::Downloading);
                     }
                     Event::Progress {
                         downloaded, total, ..
                     } => {
-                        let _ = db.set_progress(row, *downloaded, *total);
+                        let _ = db.set_progress(*row, *downloaded, *total);
                     }
                     _ => {}
                 }
@@ -212,6 +215,7 @@ fn spawn_relay(
                     resumed,
                 } => QueueEvent::Started {
                     id,
+                    path: target.clone(),
                     total,
                     connections,
                     resumed,
@@ -244,17 +248,17 @@ fn spawn_relay(
                 error: e.to_string(),
             }),
         };
-        if let (Some(db), Some(row)) = (db.as_ref(), db_row) {
+        if let Some((db, row)) = db.as_ref() {
             match &summary {
                 None => {
-                    let _ = db.finish(row, State::Completed);
+                    let _ = db.finish(*row, State::Completed);
                 }
                 Some(QueueEvent::Cancelled { .. }) => {
-                    let _ = db.finish(row, State::Cancelled);
+                    let _ = db.finish(*row, State::Cancelled);
                 }
                 Some(QueueEvent::Failed { error, .. }) => {
-                    let _ = db.set_error(row, error);
-                    let _ = db.finish(row, State::Failed);
+                    let _ = db.set_error(*row, error);
+                    let _ = db.finish(*row, State::Failed);
                 }
                 _ => {}
             }

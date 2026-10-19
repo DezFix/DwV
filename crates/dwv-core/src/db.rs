@@ -38,6 +38,7 @@ pub struct Database {
 pub enum State {
     Queued,
     Downloading,
+    Paused,
     Completed,
     Failed,
     Cancelled,
@@ -48,6 +49,7 @@ impl State {
         match self {
             State::Queued => "queued",
             State::Downloading => "downloading",
+            State::Paused => "paused",
             State::Completed => "completed",
             State::Failed => "failed",
             State::Cancelled => "cancelled",
@@ -58,6 +60,7 @@ impl State {
         match value {
             "queued" => Some(State::Queued),
             "downloading" => Some(State::Downloading),
+            "paused" => Some(State::Paused),
             "completed" => Some(State::Completed),
             "failed" => Some(State::Failed),
             "cancelled" => Some(State::Cancelled),

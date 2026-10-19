@@ -321,6 +321,9 @@ async fn run_many(urls: Vec<String>, connections: usize, parallel: usize) -> Exi
                 failed += 1;
                 eprintln!("[{id}] cancelled");
             }
+            QueueEvent::Paused { id } => {
+                eprintln!("[{id}] paused");
+            }
         }
     }
 

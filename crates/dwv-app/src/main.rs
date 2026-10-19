@@ -113,6 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     progress: 0.0,
                     detail: "video · starting".into(),
                     active: false,
+                    paused: false,
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -203,6 +204,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     progress: 0.0,
                     detail: "torrent · starting".into(),
                     active: false,
+                    paused: false,
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -264,7 +266,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ui.on_cancel_download({
         let queue = queue.clone();
-        move |id| queue.cancel(id as u64)
+        move |id| {
+            if id > 0 {
+                queue.cancel(id as u64);
+            }
+        }
+    });
+
+    ui.on_pause_download({
+        let queue = queue.clone();
+        move |id, paused| {
+            if id <= 0 {
+                return;
+            }
+            if paused {
+                queue.resume(id as u64);
+            } else {
+                queue.pause(id as u64);
+            }
+        }
     });
 
     ui.on_choose_folder({
@@ -386,6 +406,14 @@ fn history_item(row: StoredDownload) -> DownloadItem {
             None => "Cancelled".to_string(),
         },
         State::Queued | State::Downloading => "Interrupted".to_string(),
+        State::Paused => match row.total_bytes {
+            Some(total) => format!(
+                "Paused · {} / {}",
+                human_bytes(row.downloaded_bytes),
+                human_bytes(total)
+            ),
+            None => "Paused".to_string(),
+        },
     };
     DownloadItem {
         // negative ids keep history rows from colliding with live queue ids
@@ -394,6 +422,7 @@ fn history_item(row: StoredDownload) -> DownloadItem {
         progress,
         detail: detail.into(),
         active: false,
+        paused: false,
     }
 }
 
@@ -407,7 +436,8 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
         | QueueEvent::Progress { id, .. }
         | QueueEvent::Finished { id, .. }
         | QueueEvent::Failed { id, .. }
-        | QueueEvent::Cancelled { id } => *id,
+        | QueueEvent::Cancelled { id }
+        | QueueEvent::Paused { id } => *id,
     } as i32;
     let index = (0..model.row_count()).find(|&i| model.row_data(i).is_some_and(|d| d.id == id));
 
@@ -427,6 +457,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 progress: 0.0,
                 detail: detail.into(),
                 active: true,
+                paused: false,
             };
             match index {
                 Some(i) => model.set_row_data(i, item),
@@ -472,6 +503,13 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 item.detail = "Cancelled".into();
             });
         }
+        QueueEvent::Paused { .. } => {
+            let Some(i) = index else { return };
+            let mut item = model.row_data(i).unwrap();
+            item.paused = true;
+            item.detail = "Paused".into();
+            model.set_row_data(i, item);
+        }
     }
 }
 
@@ -483,6 +521,7 @@ fn finish_item(
     let Some(i) = index else { return };
     let mut item = model.row_data(i).unwrap();
     item.active = false;
+    item.paused = false;
     update(&mut item);
     model.set_row_data(i, item);
 }

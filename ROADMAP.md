@@ -46,14 +46,14 @@
 
 Reference: screenshot of Free Download Manager 6 dark UI. Same information density, own layout and identity.
 
-- Toolbar: `+ Add download` (accent), search box, filter tabs (All / Active / Completed / Video / Torrents), overflow menu
-- Table view: name, size, status, downloaded, speed, ETA; per-row pause/resume/cancel; sortable columns; multi-select
-- Empty state: dashed drop zone, "Drag URL or torrent file"
-- Drag and drop: links, text, `.torrent` files onto the window
-- Status bar: total down/up speed, active count, support link
-- Pause/resume in the engine (currently cancel keeps the `.part`; add explicit pause and resume-by-id)
-- Settings page: default folder, connections, speed limit, theme
-- Tray icon: close to tray, notifications on finish/failure
+- [x] Pause/resume in the engine and queue (paused downloads keep their `.part` and resume by id)
+- [ ] Toolbar: `+ Add download` (accent), search box, filter tabs (All / Active / Completed / Video / Torrents), overflow menu
+- [ ] Table view: name, size, status, downloaded, speed, ETA; per-row pause/resume/cancel; sortable columns; multi-select
+- [ ] Empty state: dashed drop zone, "Drag URL or torrent file"
+- [ ] Drag and drop: links, text, `.torrent` files onto the window
+- [ ] Status bar: total down/up speed, active count, support link
+- [ ] Settings page: default folder, connections, speed limit, theme
+- [ ] Tray icon: close to tray, notifications on finish/failure
 
 ## Phase 7 - Packaging
 

@@ -43,6 +43,7 @@ async fn queue_limits_parallel_jobs() {
             }
             QueueEvent::Failed { error, .. } => panic!("job failed: {error}"),
             QueueEvent::Cancelled { .. } => panic!("unexpected cancel"),
+            QueueEvent::Paused { .. } => panic!("unexpected pause"),
             QueueEvent::Progress { .. } => {}
         }
     }
@@ -99,4 +100,72 @@ async fn cancel_pending_job_skips_it() {
     assert!(!saw_started_second, "cancelled job must not start");
     assert!(target1.exists());
     assert!(!target2.exists());
+}
+
+#[tokio::test]
+async fn pause_keeps_part_and_resume_finishes() {
+    let body = test_body(9, 512 * 1024);
+    let server = start_server(body.clone(), true, Duration::from_millis(25)).await;
+    let dir = tempfile::tempdir().unwrap();
+
+    let (queue, mut events) = Queue::start(
+        QueueConfig {
+            max_parallel: 1,
+            speed_limit: None,
+        },
+        None,
+    );
+    let target = dir.path().join("resume.bin");
+    let id = queue.add(spec_for(&server, &target, 1)).await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let ev = tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .expect("pause test timed out")
+            .unwrap();
+        if let QueueEvent::Progress { downloaded, .. } = ev
+            && downloaded > 0
+        {
+            break;
+        }
+    }
+    queue.pause(id);
+
+    loop {
+        let ev = tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .expect("pause event timed out")
+            .unwrap();
+        match ev {
+            QueueEvent::Paused { id: pid } => {
+                assert_eq!(pid, id);
+                break;
+            }
+            QueueEvent::Failed { error, .. } => panic!("failed during pause: {error}"),
+            QueueEvent::Cancelled { .. } => panic!("pause was reported as cancel"),
+            _ => {}
+        }
+    }
+    let part = dir.path().join("resume.bin.part");
+    assert!(part.exists(), "part file must survive a pause");
+    assert!(!target.exists(), "paused download must not be finalized");
+
+    queue.resume(id);
+    loop {
+        let ev = tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .expect("resume timed out")
+            .unwrap();
+        match ev {
+            QueueEvent::Finished { id: fid, .. } => {
+                assert_eq!(fid, id);
+                break;
+            }
+            QueueEvent::Failed { error, .. } => panic!("failed during resume: {error}"),
+            QueueEvent::Paused { .. } => panic!("unexpected second pause"),
+            _ => {}
+        }
+    }
+    assert_eq!(std::fs::read(&target).unwrap(), body);
 }

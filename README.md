@@ -22,9 +22,10 @@ cargo build --release
 
 ```powershell
 cargo run -p dwv-cli -- https://example.com/file.zip -o file.zip -n 8
+cargo run -p dwv-cli -- <url1> <url2> <url3> -j 3
 ```
 
-Ctrl+C останавливает загрузку; `.part` и `.dwvmeta` сохраняются, повторный запуск продолжит с места обрыва.
+`-n` — соединений на файл, `-j` — параллельных загрузок в очереди. Ctrl+C останавливает; `.part` и `.dwvmeta` сохраняются, повторный запуск продолжит с места обрыва.
 
 ## Структура
 

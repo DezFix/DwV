@@ -16,9 +16,11 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
 use crate::error::Error;
+use crate::limiter::SpeedLimiter;
 
 const TICK: Duration = Duration::from_millis(250);
 const MAX_RETRIES: u32 = 5;
+const WRITE_SLICE: usize = 16 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct DownloadSpec {
@@ -26,6 +28,7 @@ pub struct DownloadSpec {
     pub target: PathBuf,
     pub connections: usize,
     pub headers: Vec<(String, String)>,
+    pub limiter: Option<SpeedLimiter>,
 }
 
 impl DownloadSpec {
@@ -35,6 +38,7 @@ impl DownloadSpec {
             target: target.into(),
             connections: 8,
             headers: Vec::new(),
+            limiter: None,
         }
     }
 }
@@ -104,6 +108,16 @@ impl Download {
             .await
             .map_err(|e| Error::Internal(e.to_string()))?
     }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        mpsc::Receiver<Event>,
+        DownloadController,
+        tokio::task::JoinHandle<Result<Outcome, Error>>,
+    ) {
+        (self.events, self.controller, self.task)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -129,6 +143,7 @@ struct SegCtx {
     part: PathBuf,
     headers: HeaderMap,
     ranged: bool,
+    limiter: Option<SpeedLimiter>,
 }
 
 async fn run(
@@ -243,6 +258,7 @@ async fn run(
         part: part.clone(),
         headers,
         ranged: info.segmented,
+        limiter: spec.limiter.clone(),
     });
     let seg_count = segments.len();
     let mut tasks = JoinSet::new();
@@ -457,7 +473,7 @@ async fn run_segment(
         if !status_ok {
             return Err(Error::Status(resp.status().as_u16(), ctx.url.clone()));
         }
-        match consume(resp, &mut file, &mut stop, &done, start, end, ctx.ranged).await {
+        match consume(resp, &mut file, &mut stop, &done, start, end, &ctx).await {
             Ok(false) => return Err(Error::Cancelled),
             Ok(true) => {
                 let rel_now = done.load(Ordering::Relaxed);
@@ -500,7 +516,7 @@ async fn consume(
     done: &AtomicU64,
     start: u64,
     end: u64,
-    ranged: bool,
+    ctx: &SegCtx,
 ) -> Result<bool, Error> {
     let mut stream = resp.bytes_stream();
     loop {
@@ -509,18 +525,16 @@ async fn consume(
             _ = stop.changed() => return Ok(false),
             chunk = stream.next() => match chunk {
                 Some(Ok(bytes)) => {
-                    let written = if ranged {
+                    let written = if ctx.ranged {
                         let done_now = done.load(Ordering::Relaxed);
                         let remaining = end.saturating_sub(start + done_now).saturating_add(1);
                         let want = remaining.min(bytes.len() as u64) as usize;
                         if want == 0 {
                             continue;
                         }
-                        file.write_all(&bytes[..want]).await?;
-                        want as u64
+                        write_throttled(file, &bytes[..want], ctx.limiter.as_ref()).await?
                     } else {
-                        file.write_all(&bytes).await?;
-                        bytes.len() as u64
+                        write_throttled(file, &bytes, ctx.limiter.as_ref()).await?
                     };
                     done.fetch_add(written, Ordering::Relaxed);
                 }
@@ -529,6 +543,23 @@ async fn consume(
             },
         }
     }
+}
+
+async fn write_throttled(
+    file: &mut tokio::fs::File,
+    data: &[u8],
+    limiter: Option<&SpeedLimiter>,
+) -> Result<u64, Error> {
+    let mut offset = 0;
+    while offset < data.len() {
+        let n = (data.len() - offset).min(WRITE_SLICE);
+        if let Some(limiter) = limiter {
+            limiter.acquire(n as u64).await;
+        }
+        file.write_all(&data[offset..offset + n]).await?;
+        offset += n;
+    }
+    Ok(data.len() as u64)
 }
 
 async fn backoff(attempt: u32, stop: &mut watch::Receiver<bool>) -> Result<(), Error> {

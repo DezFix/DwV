@@ -10,12 +10,14 @@ use slint::{ComponentHandle, Model, VecModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
-    let model = Rc::new(VecModel::<DownloadItem>::default());
-    ui.set_downloads(model.clone().into());
+    let all = Rc::new(VecModel::<DownloadItem>::default());
+    ui.set_all_downloads(all.clone().into());
+    ui.set_downloads(Rc::new(VecModel::<DownloadItem>::default()).into());
 
     let db = open_db();
     ui.set_save_dir_text(load_save_dir(db.as_ref()).display().to_string().into());
-    fill_history(&model, db.as_ref());
+    fill_history(&all, db.as_ref());
+    refilter(&ui);
 
     let runtime = tokio::runtime::Runtime::new()?;
     let _guard = runtime.enter();
@@ -295,6 +297,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    ui.on_refilter({
+        let ui_weak = ui.as_weak();
+        move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                refilter(&ui);
+            }
+        }
+    });
+
     ui.on_choose_folder({
         let ui_weak = ui.as_weak();
         let db = db.clone();
@@ -328,16 +339,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn push_item(ui: &AppWindow, item: DownloadItem) {
-    let downloads = ui.get_downloads();
-    let Some(model) = downloads.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+    let all = ui.get_all_downloads();
+    let Some(model) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
         return;
     };
     model.insert(0, item);
+    refilter(ui);
 }
 
 fn with_item(ui: &AppWindow, id: i32, apply: impl FnOnce(&mut DownloadItem)) {
-    let downloads = ui.get_downloads();
-    let Some(model) = downloads.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+    let all = ui.get_all_downloads();
+    let Some(model) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
         return;
     };
     let index = (0..model.row_count()).find(|&i| model.row_data(i).is_some_and(|d| d.id == id));
@@ -345,6 +357,51 @@ fn with_item(ui: &AppWindow, id: i32, apply: impl FnOnce(&mut DownloadItem)) {
         let mut item = model.row_data(i).unwrap();
         apply(&mut item);
         model.set_row_data(i, item);
+        refilter(ui);
+    }
+}
+
+fn refilter(ui: &AppWindow) {
+    let all = ui.get_all_downloads();
+    let Some(all) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+        return;
+    };
+    let shown = ui.get_downloads();
+    let Some(shown) = shown.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+        return;
+    };
+    let filter = ui.get_filter();
+    let search = ui.get_search_text().to_lowercase();
+    let mut rows = Vec::new();
+    for i in 0..all.row_count() {
+        let Some(item) = all.row_data(i) else {
+            continue;
+        };
+        if !matches_filter(&item, filter) {
+            continue;
+        }
+        if !search.is_empty()
+            && !item.name.to_lowercase().contains(&search)
+            && !item.detail.to_lowercase().contains(&search)
+        {
+            continue;
+        }
+        rows.push(item);
+    }
+    shown.set_vec(rows);
+}
+
+fn matches_filter(item: &DownloadItem, filter: i32) -> bool {
+    match filter {
+        1 => item.state == "Active" || item.state == "Queued",
+        2 => item.state == "Paused",
+        3 => matches!(
+            item.state.as_str(),
+            "Finished" | "Failed" | "Cancelled" | "Interrupted"
+        ),
+        4 => item.kind == "video",
+        5 => item.kind == "torrent",
+        _ => true,
     }
 }
 
@@ -449,8 +506,8 @@ fn history_item(row: StoredDownload) -> DownloadItem {
 }
 
 fn apply_event(ui: &AppWindow, event: QueueEvent) {
-    let downloads = ui.get_downloads();
-    let Some(model) = downloads.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+    let all = ui.get_all_downloads();
+    let Some(model) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
         return;
     };
     let id = match &event {
@@ -487,6 +544,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 Some(i) => model.set_row_data(i, item),
                 None => model.insert(0, item),
             }
+            refilter(ui);
         }
         QueueEvent::Progress {
             downloaded,
@@ -510,22 +568,26 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             }
             .into();
             model.set_row_data(i, item);
+            refilter(ui);
         }
         QueueEvent::Finished { .. } => {
             finish_item(model, index, "Finished", |item| {
                 item.progress = 1.0;
                 item.detail = "Finished".into();
             });
+            refilter(ui);
         }
         QueueEvent::Failed { error, .. } => {
             finish_item(model, index, "Failed", |item| {
                 item.detail = format!("Failed: {error}").into();
             });
+            refilter(ui);
         }
         QueueEvent::Cancelled { .. } => {
             finish_item(model, index, "Cancelled", |item| {
                 item.detail = "Cancelled".into();
             });
+            refilter(ui);
         }
         QueueEvent::Paused { .. } => {
             let Some(i) = index else { return };
@@ -534,6 +596,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             item.state = "Paused".into();
             item.detail = "Paused".into();
             model.set_row_data(i, item);
+            refilter(ui);
         }
     }
 }

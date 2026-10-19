@@ -16,9 +16,12 @@ export component AppWindow inherits Window {
     width: 760px;
     height: 520px;
 
+    in property <[DownloadItem]> all-downloads;
     in-out property <[DownloadItem]> downloads;
     in-out property <string> error-text;
     in-out property <string> save-dir-text;
+    in-out property <int> filter: 0;
+    in-out property <string> search-text;
 
     callback download-url(string);
     callback download-video(string);
@@ -26,6 +29,7 @@ export component AppWindow inherits Window {
     callback cancel-download(int);
     callback pause-download(int, bool);
     callback choose-folder();
+    callback refilter();
 
     VerticalBox {
         padding: 14px;
@@ -99,6 +103,44 @@ export component AppWindow inherits Window {
             }
         }
 
+        HorizontalBox {
+            spacing: 4px;
+
+            search-field := LineEdit {
+                placeholder-text: "Search";
+                horizontal-stretch: 1;
+                text: root.search-text;
+                edited => {
+                    root.search-text = self.text;
+                    root.refilter();
+                }
+            }
+
+            for label[i] in ["All", "Active", "Paused", "Finished", "Video", "Torrent"] : Rectangle {
+                height: 30px;
+                width: tab-text.preferred-width + 16px;
+                border-radius: 15px;
+                background: root.filter == i ? #3b82f6 : transparent;
+                border-width: root.filter == i ? 0px : 1px;
+                border-color: #c8ccd4;
+
+                tab-text := Text {
+                    text: label;
+                    font-size: 12px;
+                    color: root.filter == i ? #ffffff : #444444;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.filter = i;
+                        root.refilter();
+                    }
+                }
+            }
+        }
+
         if root.error-text != "" : Text {
             text: root.error-text;
             color: #c0392b;
@@ -106,7 +148,7 @@ export component AppWindow inherits Window {
         }
 
         if root.downloads.length == 0 : Text {
-            text: "No downloads yet";
+            text: "No downloads to show";
             color: #888888;
             horizontal-alignment: center;
             vertical-alignment: center;

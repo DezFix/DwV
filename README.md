@@ -8,7 +8,7 @@ Download manager written in Rust with file interception from the browser.
 - BitTorrent via librqbit
 - Slint UI, tray icon, Windows installer
 
-Status: early development. The download engine is in place (segments, queue, speed limit, SQLite history); GUI, extensions, video and torrents are next.
+Status: early development. The download engine (segments, queue, speed limit, SQLite history) and a basic GUI are in place; browser extensions, video and torrents are next.
 
 ## Build
 

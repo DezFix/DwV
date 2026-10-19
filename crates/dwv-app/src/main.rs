@@ -3,7 +3,7 @@ slint::include_modules!();
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use dwv_core::{Database, DownloadSpec, Queue, QueueConfig, QueueEvent};
+use dwv_core::{Database, DownloadSpec, Queue, QueueConfig, QueueEvent, State, StoredDownload};
 use slint::{ComponentHandle, Model, VecModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,9 +11,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = Rc::new(VecModel::<DownloadItem>::default());
     ui.set_downloads(model.clone().into());
 
+    let db = open_db();
+    ui.set_save_dir_text(load_save_dir(db.as_ref()).display().to_string().into());
+    fill_history(&model, db.as_ref());
+
     let runtime = tokio::runtime::Runtime::new()?;
     let _guard = runtime.enter();
-    let (queue, mut events) = Queue::start(QueueConfig::default(), open_db());
+    let (queue, mut events) = Queue::start(QueueConfig::default(), db.clone());
 
     let ui_weak = ui.as_weak();
     runtime.spawn(async move {
@@ -31,17 +35,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ui_weak = ui.as_weak();
         let queue = queue.clone();
         let handle = runtime.handle().clone();
-        move |url| match spec_from_url(url.as_str()) {
-            Ok(spec) => {
-                let queue = queue.clone();
-                handle.spawn(async move {
-                    let _ = queue.add(spec).await;
-                });
-            }
-            Err(error) => {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_error_text(error.into());
+        move |url| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            match spec_from_url(url.as_str(), &dir) {
+                Ok(spec) => {
+                    let queue = queue.clone();
+                    handle.spawn(async move {
+                        let _ = queue.add(spec).await;
+                    });
                 }
+                Err(error) => ui.set_error_text(error.into()),
             }
         }
     });
@@ -51,8 +55,90 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |id| queue.cancel(id as u64)
     });
 
+    ui.on_choose_folder({
+        let ui_weak = ui.as_weak();
+        let db = db.clone();
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let start_dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            let ui_weak = ui.as_weak();
+            let db = db.clone();
+            // rfd blocks its thread while the dialog is open; keep it off the UI loop
+            std::thread::spawn(move || {
+                let Some(dir) = rfd::FileDialog::new()
+                    .set_directory(&start_dir)
+                    .pick_folder()
+                else {
+                    return;
+                };
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(db) = db.as_ref() {
+                        let _ = db.set_setting("download_dir", &dir.to_string_lossy());
+                    }
+                    if let Some(ui) = ui_weak.upgrade() {
+                        ui.set_save_dir_text(dir.display().to_string().into());
+                    }
+                });
+            });
+        }
+    });
+
     ui.run()?;
     Ok(())
+}
+
+fn fill_history(model: &VecModel<DownloadItem>, db: Option<&Database>) {
+    let Some(db) = db else { return };
+    // rows left over from a crash would otherwise stay "downloading" forever
+    for row in db.load_pending().unwrap_or_default() {
+        let _ = db.set_error(row.id, "interrupted");
+        let _ = db.finish(row.id, State::Failed);
+    }
+    for row in db.recent(200).unwrap_or_default() {
+        model.push(history_item(row));
+    }
+}
+
+fn history_item(row: StoredDownload) -> DownloadItem {
+    let name = row
+        .target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| row.target.display().to_string());
+    let progress = match row.state {
+        State::Completed => 1.0,
+        _ => row
+            .total_bytes
+            .map(|total| (row.downloaded_bytes as f64 / total.max(1) as f64).min(1.0) as f32)
+            .unwrap_or(0.0),
+    };
+    let detail = match row.state {
+        State::Completed => format!(
+            "Finished · {}",
+            human_bytes(row.total_bytes.unwrap_or(row.downloaded_bytes))
+        ),
+        State::Failed => format!(
+            "Failed: {}",
+            row.error.unwrap_or_else(|| "unknown".to_string())
+        ),
+        State::Cancelled => match row.total_bytes {
+            Some(total) => format!(
+                "Cancelled · {} / {}",
+                human_bytes(row.downloaded_bytes),
+                human_bytes(total)
+            ),
+            None => "Cancelled".to_string(),
+        },
+        State::Queued | State::Downloading => "Interrupted".to_string(),
+    };
+    DownloadItem {
+        // negative ids keep history rows from colliding with live queue ids
+        id: -(row.id as i32),
+        name: name.into(),
+        progress,
+        detail: detail.into(),
+        active: false,
+    }
 }
 
 fn apply_event(ui: &AppWindow, event: QueueEvent) {
@@ -84,10 +170,11 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 name: name.into(),
                 progress: 0.0,
                 detail: detail.into(),
+                active: true,
             };
             match index {
                 Some(i) => model.set_row_data(i, item),
-                None => model.push(item),
+                None => model.insert(0, item),
             }
         }
         QueueEvent::Progress {
@@ -114,31 +201,37 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             model.set_row_data(i, item);
         }
         QueueEvent::Finished { .. } => {
-            if let Some(i) = index {
-                let mut item = model.row_data(i).unwrap();
+            finish_item(model, index, |item| {
                 item.progress = 1.0;
                 item.detail = "Finished".into();
-                model.set_row_data(i, item);
-            }
+            });
         }
         QueueEvent::Failed { error, .. } => {
-            if let Some(i) = index {
-                let mut item = model.row_data(i).unwrap();
+            finish_item(model, index, |item| {
                 item.detail = format!("Failed: {error}").into();
-                model.set_row_data(i, item);
-            }
+            });
         }
         QueueEvent::Cancelled { .. } => {
-            if let Some(i) = index {
-                let mut item = model.row_data(i).unwrap();
+            finish_item(model, index, |item| {
                 item.detail = "Cancelled".into();
-                model.set_row_data(i, item);
-            }
+            });
         }
     }
 }
 
-fn spec_from_url(url: &str) -> Result<DownloadSpec, String> {
+fn finish_item(
+    model: &VecModel<DownloadItem>,
+    index: Option<usize>,
+    update: impl FnOnce(&mut DownloadItem),
+) {
+    let Some(i) = index else { return };
+    let mut item = model.row_data(i).unwrap();
+    item.active = false;
+    update(&mut item);
+    model.set_row_data(i, item);
+}
+
+fn spec_from_url(url: &str, dir: &Path) -> Result<DownloadSpec, String> {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("only http:// and https:// URLs are supported".to_string());
@@ -151,7 +244,7 @@ fn spec_from_url(url: &str) -> Result<DownloadSpec, String> {
     } else {
         raw_name
     });
-    let mut spec = DownloadSpec::new(url, unique_path(&download_dir().join(&name)));
+    let mut spec = DownloadSpec::new(url, unique_path(&dir.join(&name)));
     spec.connections = 8;
     Ok(spec)
 }
@@ -176,7 +269,14 @@ fn sanitize(name: &str) -> String {
     }
 }
 
-fn download_dir() -> PathBuf {
+fn load_save_dir(db: Option<&Database>) -> PathBuf {
+    db.and_then(|db| db.get_setting("download_dir").ok().flatten())
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_dir())
+        .unwrap_or_else(default_download_dir)
+}
+
+fn default_download_dir() -> PathBuf {
     std::env::var_os("USERPROFILE")
         .map(PathBuf::from)
         .map(|home| home.join("Downloads"))
@@ -224,5 +324,40 @@ fn human_bytes(bytes: u64) -> String {
         format!("{bytes} B")
     } else {
         format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_replaces_reserved_characters() {
+        assert_eq!(sanitize("a:b?c*d"), "a_b_c_d");
+        assert_eq!(sanitize("trailing. "), "trailing");
+        assert_eq!(sanitize(""), "download");
+    }
+
+    #[test]
+    fn spec_takes_name_from_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = spec_from_url(
+            "https://example.com/dir/file.zip?token=abc#frag",
+            dir.path(),
+        )
+        .unwrap();
+        assert_eq!(spec.url, "https://example.com/dir/file.zip?token=abc#frag");
+        assert_eq!(spec.target, dir.path().join("file.zip"));
+        assert_eq!(spec.connections, 8);
+
+        assert!(spec_from_url("ftp://example.com/file.zip", dir.path()).is_err());
+    }
+
+    #[test]
+    fn spec_avoids_overwriting_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("file.zip"), b"x").unwrap();
+        let spec = spec_from_url("https://example.com/file.zip", dir.path()).unwrap();
+        assert_eq!(spec.target, dir.path().join("file (1).zip"));
     }
 }

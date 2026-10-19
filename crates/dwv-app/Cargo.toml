@@ -14,7 +14,11 @@ path = "src/main.rs"
 [dependencies]
 slint.workspace = true
 tokio.workspace = true
+rfd.workspace = true
 dwv-core = { path = "../dwv-core" }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [build-dependencies]
 slint-build = "1"

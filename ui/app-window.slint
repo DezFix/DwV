@@ -5,6 +5,7 @@ export struct DownloadItem {
     name: string,
     progress: float,
     detail: string,
+    active: bool,
 }
 
 export component AppWindow inherits Window {
@@ -14,9 +15,11 @@ export component AppWindow inherits Window {
 
     in-out property <[DownloadItem]> downloads;
     in-out property <string> error-text;
+    in-out property <string> save-dir-text;
 
     callback download-url(string);
     callback cancel-download(int);
+    callback choose-folder();
 
     VerticalBox {
         padding: 14px;
@@ -43,6 +46,30 @@ export component AppWindow inherits Window {
                         root.download-url(url-field.text);
                         url-field.text = "";
                     }
+                }
+            }
+        }
+
+        HorizontalBox {
+            spacing: 8px;
+
+            Text {
+                text: "Save to:";
+                color: #666666;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: root.save-dir-text;
+                overflow: elide;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+
+            Button {
+                text: "Browse…";
+                clicked => {
+                    root.choose-folder();
                 }
             }
         }
@@ -105,6 +132,7 @@ export component AppWindow inherits Window {
 
                     Button {
                         text: "Cancel";
+                        enabled: item.active;
                         clicked => {
                             root.cancel-download(item.id);
                         }

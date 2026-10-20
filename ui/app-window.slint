@@ -45,6 +45,7 @@ export component AppWindow inherits Window {
     icon: @image-url("../asset/DwV-icon.png");
     width: 760px;
     height: 520px;
+    background: #16181d;
 
     in property <[DownloadItem]> all-downloads;
     in-out property <[DownloadItem]> downloads;
@@ -113,11 +114,13 @@ export component AppWindow inherits Window {
 
             Text {
                 text: "Save to:";
+                color: #98a2b3;
                 vertical-alignment: center;
             }
 
             Text {
                 text: root.save-dir-text;
+                color: #e7eaf0;
                 overflow: elide;
                 horizontal-stretch: 1;
                 vertical-alignment: center;
@@ -140,9 +143,9 @@ export component AppWindow inherits Window {
 
         if root.settings-open : Rectangle {
             border-width: 1px;
-            border-color: #c8ccd4;
+            border-color: #2b313d;
             border-radius: 8px;
-            background: #fafafb;
+            background: #1f232b;
 
             VerticalBox {
                 HorizontalBox {
@@ -152,6 +155,7 @@ export component AppWindow inherits Window {
 
                     Text {
                         text: "Connections:";
+                        color: #c3c9d4;
                         vertical-alignment: center;
                     }
 
@@ -166,6 +170,7 @@ export component AppWindow inherits Window {
 
                     Text {
                         text: "Speed limit (KB/s, 0 = unlimited):";
+                        color: #c3c9d4;
                         vertical-alignment: center;
                     }
 
@@ -194,6 +199,7 @@ export component AppWindow inherits Window {
 
                     Text {
                         text: "Video quality:";
+                        color: #c3c9d4;
                         vertical-alignment: center;
                     }
 
@@ -223,14 +229,14 @@ export component AppWindow inherits Window {
                 height: 30px;
                 width: tab-text.preferred-width + 16px;
                 border-radius: 15px;
-                background: root.filter == i ? #3b82f6 : transparent;
+                background: root.filter == i ? #2dd4bf : transparent;
                 border-width: root.filter == i ? 0px : 1px;
-                border-color: #c8ccd4;
+                border-color: #2b313d;
 
                 tab-text := Text {
                     text: label;
                     font-size: 12px;
-                    color: root.filter == i ? #ffffff : #444444;
+                    color: root.filter == i ? #0b1215 : #98a2b3;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -246,20 +252,20 @@ export component AppWindow inherits Window {
 
         if root.error-text != "" : Text {
             text: root.error-text;
-            color: #c0392b;
+            color: #f87171;
             font-size: 13px;
         }
 
         if root.downloads.length == 0 : Rectangle {
             vertical-stretch: 1;
             border-width: 1px;
-            border-color: #c8ccd4;
+            border-color: #2b313d;
             border-radius: 8px;
-            background: #fafafb;
+            background: #1f232b;
 
             Text {
-                text: "Drag a URL or a .torrent file here";
-                color: #888888;
+                text: "Drop a link or a .torrent file here";
+                color: #98a2b3;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
@@ -277,7 +283,7 @@ export component AppWindow inherits Window {
                 Text {
                     text: root.sort-key == 1 ? (root.sort-desc ? "Name ▼" : "Name ▲") : "Name";
                     font-size: 12px;
-                    color: #666666;
+                    color: #98a2b3;
                     vertical-alignment: center;
                 }
 
@@ -300,7 +306,7 @@ export component AppWindow inherits Window {
                 Text {
                     text: root.sort-key == 3 ? (root.sort-desc ? "Progress ▼" : "Progress ▲") : "Progress";
                     font-size: 12px;
-                    color: #666666;
+                    color: #98a2b3;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -324,7 +330,7 @@ export component AppWindow inherits Window {
                 Text {
                     text: root.sort-key == 2 ? (root.sort-desc ? "Status ▼" : "Status ▲") : "Status";
                     font-size: 12px;
-                    color: #666666;
+                    color: #98a2b3;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -341,6 +347,9 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+
+            Rectangle { width: 84px; }
+            Rectangle { width: 84px; }
         }
 
         ListView {
@@ -348,7 +357,7 @@ export component AppWindow inherits Window {
 
             for item in root.downloads : Rectangle {
                 height: 52px;
-                background: #f4f4f6;
+                background: #232833;
                 border-radius: 6px;
 
                 HorizontalBox {
@@ -363,7 +372,7 @@ export component AppWindow inherits Window {
 
                         Text {
                             text: item.name;
-                            color: #1f2328;
+                            color: #e7eaf0;
                             font-weight: 600;
                             font-size: 14px;
                             overflow: elide;
@@ -371,7 +380,7 @@ export component AppWindow inherits Window {
 
                         Text {
                             text: item.detail;
-                            color: #666666;
+                            color: #98a2b3;
                             font-size: 12px;
                             overflow: elide;
                         }
@@ -384,7 +393,7 @@ export component AppWindow inherits Window {
                         Rectangle {
                             height: 8px;
                             border-radius: 4px;
-                            background: #dcdfe6;
+                            background: #2b313d;
 
                             Rectangle {
                                 width: parent.width * item.progress;
@@ -397,7 +406,7 @@ export component AppWindow inherits Window {
                     Text {
                         width: 84px;
                         text: item.state;
-                        color: #444444;
+                        color: #c3c9d4;
                         font-size: 12px;
                         horizontal-alignment: center;
                         vertical-alignment: center;
@@ -405,7 +414,8 @@ export component AppWindow inherits Window {
 
                     Button {
                         text: item.paused ? "Resume" : "Pause";
-                        visible: item.active;
+                        width: 84px;
+                        enabled: item.active;
                         clicked => {
                             root.pause-download(item.id, item.paused);
                         }
@@ -413,7 +423,8 @@ export component AppWindow inherits Window {
 
                     Button {
                         text: "Cancel";
-                        visible: item.active;
+                        width: 84px;
+                        enabled: item.active;
                         clicked => {
                             root.cancel-download(item.id);
                         }
@@ -425,7 +436,7 @@ export component AppWindow inherits Window {
         HorizontalBox {
             Text {
                 text: root.status-text;
-                color: #666666;
+                color: #98a2b3;
                 font-size: 12px;
                 vertical-alignment: center;
             }

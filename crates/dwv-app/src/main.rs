@@ -445,6 +445,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    ui.window()
+        .on_close_requested(|| slint::CloseRequestResponse::HideWindow);
+
+    let tray = AppTray::new()?;
+    tray.on_show_window({
+        let ui_weak = ui.as_weak();
+        move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let _ = ui.show();
+            }
+        }
+    });
+    tray.on_quit(|| {
+        let _ = slint::quit_event_loop();
+    });
+
     ui.run()?;
     Ok(())
 }

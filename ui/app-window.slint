@@ -12,6 +12,34 @@ export struct DownloadItem {
     speed-bps: int,
 }
 
+export component AppTray inherits SystemTrayIcon {
+    icon: @image-url("../asset/DwV-icon.png");
+    tooltip: "DwV";
+
+    Menu {
+        MenuItem {
+            title: "Show DwV";
+            activated => {
+                root.show-window();
+            }
+        }
+        MenuSeparator { }
+        MenuItem {
+            title: "Quit";
+            activated => {
+                root.quit();
+            }
+        }
+    }
+
+    callback show-window();
+    callback quit();
+
+    clicked => {
+        root.show-window();
+    }
+}
+
 export component AppWindow inherits Window {
     title: "DwV";
     icon: @image-url("../asset/DwV-icon.png");

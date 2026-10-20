@@ -1,4 +1,5 @@
-import { Button, ComboBox, HorizontalBox, LineEdit, ListView, SpinBox, VerticalBox } from "std-widgets.slint";
+import { ComboBox, HorizontalBox, LineEdit, ListView, SpinBox, VerticalBox } from "std-widgets.slint";
+import { FdmButton, MenuEntry, MenuSeparator, ProgressBar, Theme } from "components.slint";
 
 export struct DownloadItem {
     id: int,
@@ -12,6 +13,11 @@ export struct DownloadItem {
     speed-bps: int,
     path: string,
     folder: string,
+    size-text: string,
+    speed-text: string,
+    added-text: string,
+    size-kb: int,
+    added-at: int,
 }
 
 export component AppTray inherits SystemTrayIcon {
@@ -42,12 +48,38 @@ export component AppTray inherits SystemTrayIcon {
     }
 }
 
+component HeaderCell inherits Rectangle {
+    in property <string> text;
+    in property <length> cell-width: 80px;
+    in property <bool> stretch: false;
+    in property <bool> sorted: false;
+    in property <bool> desc: false;
+    callback sort();
+
+    width: root.cell-width;
+    horizontal-stretch: root.stretch ? 1 : 0;
+
+    Text {
+        text: root.sorted ? (root.desc ? root.text + " ↓" : root.text + " ↑") : root.text;
+        color: Theme.muted;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.sort();
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title: "DwV";
     icon: @image-url("../asset/DwV-icon.png");
-    width: 900px;
-    height: 620px;
-    background: #16181d;
+    width: 980px;
+    height: 640px;
+    background: Theme.bg;
 
     in property <[DownloadItem]> all-downloads;
     in-out property <[DownloadItem]> downloads;
@@ -62,6 +94,14 @@ export component AppWindow inherits Window {
     in-out property <int> video-quality: 0;
     in-out property <int> sort-key: 0;
     in-out property <bool> sort-desc: false;
+    in-out property <int> selected-id: 0;
+    in-out property <int> ctx-id: 0;
+    in-out property <string> ctx-path;
+    in-out property <string> ctx-folder;
+    in-out property <bool> ctx-active: false;
+    in-out property <bool> ctx-paused: false;
+    in-out property <length> ctx-x: 0px;
+    in-out property <length> ctx-y: 0px;
 
     callback add-link(string);
     callback download-video(string);
@@ -74,6 +114,9 @@ export component AppWindow inherits Window {
     callback refilter();
     callback dropped(data-transfer);
     callback save-settings();
+    callback support-project();
+    callback show-about();
+    callback exit-app();
 
     DropArea {
         can-drop(event) => {
@@ -85,401 +128,602 @@ export component AppWindow inherits Window {
         }
 
         VerticalBox {
-        padding: 14px;
-        spacing: 10px;
+            spacing: 0px;
 
-        HorizontalBox {
-            spacing: 8px;
+            Rectangle {
+                height: 52px;
+                background: Theme.panel;
 
-            add-button := Rectangle {
-                height: 30px;
-                width: add-label.preferred-width + 28px;
-                border-radius: 6px;
-                background: add-touch.has-hover ? #5eead4 : #2dd4bf;
-
-                add-label := Text {
-                    text: "+ Add";
-                    color: #0b1215;
-                    font-weight: 600;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                add-touch := TouchArea {
-                    clicked => {
-                        if (url-field.text != "") {
-                            root.add-link(url-field.text);
-                            url-field.text = "";
-                        }
-                    }
-                }
-            }
-
-            url-field := LineEdit {
-                placeholder-text: "Paste a link or drop a file — type is detected automatically";
-                edited => {
-                    root.error-text = "";
-                }
-                accepted => {
-                    root.add-link(self.text);
-                    self.text = "";
-                }
-            }
-
-            Button {
-                text: "Settings";
-                clicked => {
-                    root.settings-open = !root.settings-open;
-                }
-            }
-        }
-
-        HorizontalBox {
-            spacing: 8px;
-
-            Text {
-                text: "Save to:";
-                color: #98a2b3;
-                vertical-alignment: center;
-            }
-
-            Text {
-                text: root.save-dir-text;
-                color: #e7eaf0;
-                overflow: elide;
-                horizontal-stretch: 1;
-                vertical-alignment: center;
-            }
-
-            Button {
-                text: "Browse…";
-                clicked => {
-                    root.choose-folder();
-                }
-            }
-        }
-
-        if root.settings-open : Rectangle {
-            border-width: 1px;
-            border-color: #2b313d;
-            border-radius: 8px;
-            background: #1f232b;
-
-            VerticalBox {
                 HorizontalBox {
-                    padding: 8px;
+                    padding-left: 12px;
+                    padding-right: 8px;
+                    padding-top: 10px;
+                    padding-bottom: 10px;
                     spacing: 8px;
-                    alignment: center;
 
-                    Text {
-                        text: "Connections:";
-                        color: #c3c9d4;
-                        vertical-alignment: center;
-                    }
-
-                    SpinBox {
-                        minimum: 1;
-                        maximum: 32;
-                        value: root.connections;
-                        edited(value) => {
-                            root.connections = value;
+                    url-field := LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "Paste a link or drop a file — type is detected automatically";
+                        edited => {
+                            root.error-text = "";
+                        }
+                        accepted => {
+                            root.add-link(self.text);
+                            self.text = "";
                         }
                     }
 
-                    Text {
-                        text: "Speed limit (KB/s, 0 = unlimited):";
-                        color: #c3c9d4;
-                        vertical-alignment: center;
-                    }
-
-                    SpinBox {
-                        minimum: 0;
-                        maximum: 1048576;
-                        value: root.speed-limit-kbps;
-                        edited(value) => {
-                            root.speed-limit-kbps = value;
-                        }
-                    }
-
-                    Button {
-                        text: "Save";
+                    FdmButton {
+                        text: "+ Add";
+                        primary: true;
                         clicked => {
-                            root.save-settings();
-                            root.settings-open = false;
+                            if (url-field.text != "") {
+                                root.add-link(url-field.text);
+                                url-field.text = "";
+                            }
                         }
                     }
-                }
 
-                HorizontalBox {
-                    padding: 8px;
-                    spacing: 8px;
-                    alignment: center;
-
-                    Text {
-                        text: "Video quality:";
-                        color: #c3c9d4;
-                        vertical-alignment: center;
+                    search-field := LineEdit {
+                        width: 180px;
+                        placeholder-text: "Search…";
+                        text: root.search-text;
+                        edited => {
+                            root.search-text = self.text;
+                            root.refilter();
+                        }
                     }
 
                     ComboBox {
-                        width: 160px;
-                        model: ["Best", "1080p", "720p", "480p"];
-                        current-index <=> root.video-quality;
+                        width: 124px;
+                        model: ["Newest", "Name", "Status", "Progress", "Size", "Added"];
+                        current-index <=> root.sort-key;
+                        selected(value) => {
+                            root.sort-key = value == "Name" ? 1 : (value == "Status" ? 2 : (value == "Progress" ? 3 : (value == "Size" ? 4 : (value == "Added" ? 5 : 0))));
+                            root.refilter();
+                        }
+                    }
+
+                    ComboBox {
+                        width: 124px;
+                        model: ["All", "Active", "Paused", "Finished", "Video", "Torrent"];
+                        current-index <=> root.filter;
+                        selected(value) => {
+                            root.filter = value == "Active" ? 1 : (value == "Paused" ? 2 : (value == "Finished" ? 3 : (value == "Video" ? 4 : (value == "Torrent" ? 5 : 0))));
+                            root.refilter();
+                        }
+                    }
+
+                    FdmButton {
+                        text: "☰";
+                        width: 34px;
+                        clicked => {
+                            main-menu.show();
+                        }
                     }
                 }
             }
-        }
 
-        HorizontalBox {
-            spacing: 4px;
+            if root.settings-open : Rectangle {
+                background: Theme.panel;
+                border-width: 1px;
+                border-color: Theme.border;
+                border-radius: 8px;
 
-            search-field := LineEdit {
-                placeholder-text: "Search";
-                horizontal-stretch: 1;
-                text: root.search-text;
-                edited => {
-                    root.search-text = self.text;
-                    root.refilter();
-                }
-            }
+                VerticalBox {
+                    padding: 10px;
+                    spacing: 8px;
 
-            for label[i] in ["All", "Active", "Paused", "Finished", "Video", "Torrent"] : Rectangle {
-                height: 30px;
-                width: tab-text.preferred-width + 16px;
-                border-radius: 15px;
-                background: root.filter == i ? #2dd4bf : transparent;
-                border-width: root.filter == i ? 0px : 1px;
-                border-color: #2b313d;
+                    HorizontalBox {
+                        spacing: 8px;
+                        alignment: center;
 
-                tab-text := Text {
-                    text: label;
-                    font-size: 12px;
-                    color: root.filter == i ? #0b1215 : #98a2b3;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
+                        Text {
+                            text: "Save to:";
+                            color: Theme.muted;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
 
-                TouchArea {
-                    clicked => {
-                        root.filter = i;
-                        root.refilter();
+                        Text {
+                            text: root.save-dir-text;
+                            color: Theme.text;
+                            font-size: 13px;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+
+                        FdmButton {
+                            text: "Browse…";
+                            clicked => {
+                                root.choose-folder();
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        spacing: 8px;
+                        alignment: center;
+
+                        Text {
+                            text: "Connections:";
+                            color: Theme.muted;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+
+                        SpinBox {
+                            minimum: 1;
+                            maximum: 32;
+                            value: root.connections;
+                            edited(value) => {
+                                root.connections = value;
+                            }
+                        }
+
+                        Text {
+                            text: "Speed limit (KB/s, 0 = unlimited):";
+                            color: Theme.muted;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+
+                        SpinBox {
+                            minimum: 0;
+                            maximum: 1048576;
+                            value: root.speed-limit-kbps;
+                            edited(value) => {
+                                root.speed-limit-kbps = value;
+                            }
+                        }
+
+                        Text {
+                            text: "Video quality:";
+                            color: Theme.muted;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+
+                        ComboBox {
+                            width: 120px;
+                            model: ["Best", "1080p", "720p", "480p"];
+                            current-index <=> root.video-quality;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        FdmButton {
+                            text: "Save";
+                            primary: true;
+                            clicked => {
+                                root.save-settings();
+                                root.settings-open = false;
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        if root.error-text != "" : Text {
-            text: root.error-text;
-            color: #f87171;
-            font-size: 13px;
-        }
+            if root.error-text != "" : Rectangle {
+                height: 26px;
 
-        if root.downloads.length == 0 : Rectangle {
-            vertical-stretch: 1;
-            border-width: 1px;
-            border-color: #2b313d;
-            border-radius: 8px;
-            background: #1f232b;
+                HorizontalBox {
+                    padding-left: 12px;
+                    padding-right: 12px;
 
-            Text {
-                text: "Drop a link or a .torrent file here";
-                color: #98a2b3;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                    Text {
+                        text: root.error-text;
+                        color: Theme.danger;
+                        font-size: 13px;
+                        vertical-alignment: center;
+                    }
+                }
             }
-        }
-
-        HorizontalBox {
-            height: 24px;
-            padding-left: 10px;
-            padding-right: 10px;
-            spacing: 10px;
 
             Rectangle {
-                horizontal-stretch: 1;
-
-                Text {
-                    text: root.sort-key == 1 ? (root.sort-desc ? "Name ▼" : "Name ▲") : "Name";
-                    font-size: 12px;
-                    color: #98a2b3;
-                    vertical-alignment: center;
-                }
-
-                TouchArea {
-                    clicked => {
-                        if (root.sort-key == 1) {
-                            root.sort-desc = !root.sort-desc;
-                        } else {
-                            root.sort-key = 1;
-                            root.sort-desc = false;
-                        }
-                        root.refilter();
-                    }
-                }
-            }
-
-            Rectangle {
-                width: 140px;
-
-                Text {
-                    text: root.sort-key == 3 ? (root.sort-desc ? "Progress ▼" : "Progress ▲") : "Progress";
-                    font-size: 12px;
-                    color: #98a2b3;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                TouchArea {
-                    clicked => {
-                        if (root.sort-key == 3) {
-                            root.sort-desc = !root.sort-desc;
-                        } else {
-                            root.sort-key = 3;
-                            root.sort-desc = false;
-                        }
-                        root.refilter();
-                    }
-                }
-            }
-
-            Rectangle {
-                width: 84px;
-
-                Text {
-                    text: root.sort-key == 2 ? (root.sort-desc ? "Status ▼" : "Status ▲") : "Status";
-                    font-size: 12px;
-                    color: #98a2b3;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                TouchArea {
-                    clicked => {
-                        if (root.sort-key == 2) {
-                            root.sort-desc = !root.sort-desc;
-                        } else {
-                            root.sort-key = 2;
-                            root.sort-desc = false;
-                        }
-                        root.refilter();
-                    }
-                }
-            }
-
-            Rectangle { width: 84px; }
-            Rectangle { width: 64px; }
-            Rectangle { width: 72px; }
-            Rectangle { width: 80px; }
-        }
-
-        ListView {
-            vertical-stretch: 1;
-
-            for item in root.downloads : Rectangle {
-                height: 52px;
-                background: row-touch.has-hover ? #2a3140 : #232833;
-                border-radius: 6px;
-
-                row-touch := TouchArea { }
+                height: 28px;
+                background: Theme.panel-2;
 
                 HorizontalBox {
                     padding-left: 10px;
                     padding-right: 10px;
                     spacing: 10px;
 
-                    VerticalBox {
-                        alignment: center;
-                        horizontal-stretch: 1;
-                        spacing: 2px;
+                    Text {
+                        width: 34px;
+                        text: "#";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
 
-                        Text {
-                            text: item.name;
-                            color: #e7eaf0;
-                            font-weight: 600;
-                            font-size: 14px;
-                            overflow: elide;
-                        }
-
-                        Text {
-                            text: item.detail;
-                            color: #98a2b3;
-                            font-size: 12px;
-                            overflow: elide;
+                    HeaderCell {
+                        text: "Name";
+                        stretch: true;
+                        sorted: root.sort-key == 1;
+                        desc: root.sort-desc;
+                        sort() => {
+                            if (root.sort-key == 1) {
+                                root.sort-desc = !root.sort-desc;
+                            } else {
+                                root.sort-key = 1;
+                                root.sort-desc = false;
+                            }
+                            root.refilter();
                         }
                     }
 
-                    VerticalBox {
-                        alignment: center;
-                        width: 140px;
+                    HeaderCell {
+                        text: "Size";
+                        cell-width: 80px;
+                        sorted: root.sort-key == 4;
+                        desc: root.sort-desc;
+                        sort() => {
+                            if (root.sort-key == 4) {
+                                root.sort-desc = !root.sort-desc;
+                            } else {
+                                root.sort-key = 4;
+                                root.sort-desc = false;
+                            }
+                            root.refilter();
+                        }
+                    }
 
-                        Rectangle {
-                            height: 8px;
-                            border-radius: 4px;
-                            background: #2b313d;
+                    HeaderCell {
+                        text: "Status";
+                        cell-width: 96px;
+                        sorted: root.sort-key == 2;
+                        desc: root.sort-desc;
+                        sort() => {
+                            if (root.sort-key == 2) {
+                                root.sort-desc = !root.sort-desc;
+                            } else {
+                                root.sort-key = 2;
+                                root.sort-desc = false;
+                            }
+                            root.refilter();
+                        }
+                    }
 
-                            Rectangle {
-                                width: parent.width * item.progress;
-                                border-radius: 4px;
-                                background: #3b82f6;
+                    HeaderCell {
+                        text: "Progress";
+                        cell-width: 150px;
+                        sorted: root.sort-key == 3;
+                        desc: root.sort-desc;
+                        sort() => {
+                            if (root.sort-key == 3) {
+                                root.sort-desc = !root.sort-desc;
+                            } else {
+                                root.sort-key = 3;
+                                root.sort-desc = false;
+                            }
+                            root.refilter();
+                        }
+                    }
+
+                    HeaderCell {
+                        text: "Speed";
+                        cell-width: 80px;
+                    }
+
+                    HeaderCell {
+                        text: "Added";
+                        cell-width: 84px;
+                        sorted: root.sort-key == 5;
+                        desc: root.sort-desc;
+                        sort() => {
+                            if (root.sort-key == 5) {
+                                root.sort-desc = !root.sort-desc;
+                            } else {
+                                root.sort-key = 5;
+                                root.sort-desc = false;
+                            }
+                            root.refilter();
+                        }
+                    }
+                }
+            }
+
+            if root.downloads.length == 0 : Rectangle {
+                vertical-stretch: 1;
+                background: Theme.panel;
+                border-width: 1px;
+                border-color: Theme.border;
+                border-radius: 8px;
+
+                VerticalBox {
+                    alignment: center;
+                    spacing: 8px;
+
+                    Text {
+                        text: "⇣";
+                        color: Theme.muted;
+                        font-size: 34px;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "Drag a link or a .torrent file here";
+                        color: Theme.muted;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "or paste it into the field above";
+                        color: Theme.muted;
+                        font-size: 12px;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+
+            ListView {
+                vertical-stretch: 1;
+                visible: root.downloads.length > 0;
+
+                for item[i] in root.downloads : Rectangle {
+                    height: 46px;
+                    background: root.selected-id == item.id ? Theme.selected : (row-touch.has-hover ? Theme.row-hover : Theme.row);
+                    border-radius: 4px;
+
+                    row-touch := TouchArea {
+                        mouse-cursor: pointer;
+
+                        clicked => {
+                            root.selected-id = item.id;
+                        }
+
+                        double-clicked => {
+                            root.open-item(item.id);
+                        }
+
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                root.selected-id = item.id;
+                                root.ctx-id = item.id;
+                                root.ctx-path = item.path;
+                                root.ctx-folder = item.folder;
+                                root.ctx-active = item.active;
+                                root.ctx-paused = item.paused;
+                                root.ctx-x = Math.min(row-touch.absolute-position.x + row-touch.mouse-x, root.width - 210px);
+                                root.ctx-y = Math.min(row-touch.absolute-position.y + row-touch.mouse-y, root.height - 180px);
+                                ctx-menu.show();
                             }
                         }
                     }
 
+                    HorizontalBox {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 10px;
+
+                        Text {
+                            width: 34px;
+                            text: "\{i + 1}";
+                            color: Theme.muted;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+
+                        VerticalBox {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            spacing: 1px;
+
+                            Text {
+                                text: item.name;
+                                color: Theme.text;
+                                font-size: 13px;
+                                font-weight: 500;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: item.detail;
+                                color: Theme.muted;
+                                font-size: 11px;
+                                overflow: elide;
+                            }
+                        }
+
+                        Text {
+                            width: 80px;
+                            text: item.size-text;
+                            color: Theme.muted;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            width: 96px;
+                            text: item.state;
+                            color: item.state == "Finished" ? Theme.success : (item.state == "Failed" ? Theme.danger : (item.state == "Active" ? Theme.text : Theme.muted));
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+
+                        HorizontalBox {
+                            width: 150px;
+                            spacing: 6px;
+
+                            VerticalBox {
+                                horizontal-stretch: 1;
+                                alignment: center;
+
+                                ProgressBar {
+                                    value: item.progress;
+                                }
+                            }
+
+                            Text {
+                                width: 34px;
+                                text: "\{Math.round(item.progress * 100)}%";
+                                color: Theme.muted;
+                                font-size: 11px;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Text {
+                            width: 80px;
+                            text: item.speed-text;
+                            color: item.active ? Theme.text : Theme.muted;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            width: 84px;
+                            text: item.added-text;
+                            color: Theme.muted;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 32px;
+                background: Theme.panel;
+
+                HorizontalBox {
+                    padding-left: 12px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    alignment: center;
+
                     Text {
-                        width: 84px;
-                        text: item.state;
-                        color: #c3c9d4;
+                        text: root.status-text;
+                        color: Theme.muted;
                         font-size: 12px;
-                        horizontal-alignment: center;
                         vertical-alignment: center;
                     }
 
-                    Button {
-                        text: item.paused ? "Resume" : "Pause";
-                        width: 84px;
-                        enabled: item.active;
-                        clicked => {
-                            root.pause-download(item.id, item.paused);
-                        }
-                    }
+                    Rectangle { horizontal-stretch: 1; }
 
-                    Button {
-                        text: "Open";
-                        width: 64px;
-                        enabled: item.path != "" || item.folder != "";
+                    FdmButton {
+                        text: "Support the project";
                         clicked => {
-                            root.open-item(item.id);
-                        }
-                    }
-
-                    Button {
-                        text: "Folder";
-                        width: 72px;
-                        enabled: item.folder != "";
-                        clicked => {
-                            root.show-folder(item.id);
-                        }
-                    }
-
-                    Button {
-                        text: "Remove";
-                        width: 80px;
-                        clicked => {
-                            root.remove-item(item.id);
+                            root.support-project();
                         }
                     }
                 }
             }
         }
+    }
 
-        HorizontalBox {
-            Text {
-                text: root.status-text;
-                color: #98a2b3;
-                font-size: 12px;
-                vertical-alignment: center;
+    main-menu := PopupWindow {
+        x: root.width - 232px;
+        y: 52px;
+        width: 220px;
+        height: main-menu-box.preferred-height + 12px;
+        close-policy: close-on-click-outside;
+
+        main-menu-box := Rectangle {
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.border;
+            border-radius: 8px;
+
+            VerticalBox {
+                padding: 6px;
+                spacing: 2px;
+
+                MenuEntry {
+                    text: "Settings";
+                    clicked => {
+                        main-menu.close();
+                        root.settings-open = !root.settings-open;
+                    }
+                }
+
+                MenuEntry {
+                    text: "Support the project";
+                    clicked => {
+                        main-menu.close();
+                        root.support-project();
+                    }
+                }
+
+                MenuEntry {
+                    text: "About DwV";
+                    clicked => {
+                        main-menu.close();
+                        root.show-about();
+                    }
+                }
+
+                MenuSeparator { }
+
+                MenuEntry {
+                    text: "Exit";
+                    clicked => {
+                        main-menu.close();
+                        root.exit-app();
+                    }
+                }
             }
         }
+    }
+
+    ctx-menu := PopupWindow {
+        x: root.ctx-x;
+        y: root.ctx-y;
+        width: 200px;
+        height: ctx-menu-box.preferred-height + 12px;
+        close-policy: close-on-click-outside;
+
+        ctx-menu-box := Rectangle {
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.border;
+            border-radius: 8px;
+
+            VerticalBox {
+                padding: 6px;
+                spacing: 2px;
+
+                MenuEntry {
+                    text: "Open";
+                    enabled: root.ctx-path != "" || root.ctx-folder != "";
+                    clicked => {
+                        ctx-menu.close();
+                        root.open-item(root.ctx-id);
+                    }
+                }
+
+                MenuEntry {
+                    text: "Show in folder";
+                    enabled: root.ctx-folder != "";
+                    clicked => {
+                        ctx-menu.close();
+                        root.show-folder(root.ctx-id);
+                    }
+                }
+
+                MenuEntry {
+                    text: root.ctx-paused ? "Resume" : "Pause";
+                    enabled: root.ctx-active;
+                    clicked => {
+                        ctx-menu.close();
+                        root.pause-download(root.ctx-id, root.ctx-paused);
+                    }
+                }
+
+                MenuSeparator { }
+
+                MenuEntry {
+                    text: "Remove from list";
+                    clicked => {
+                        ctx-menu.close();
+                        root.remove-item(root.ctx-id);
+                    }
+                }
+            }
         }
     }
 }

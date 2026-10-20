@@ -1,0 +1,101 @@
+export global Theme {
+    in-out property <color> bg: #1e1f22;
+    in-out property <color> panel: #25272b;
+    in-out property <color> panel-2: #2a2d33;
+    in-out property <color> row: #23252a;
+    in-out property <color> row-hover: #2c3037;
+    in-out property <color> selected: #2f4a6e;
+    in-out property <color> border: #34373d;
+    in-out property <color> text: #e6e8ec;
+    in-out property <color> muted: #98a2b3;
+    in-out property <color> accent: #4c9aff;
+    in-out property <color> accent-hover: #6cb0ff;
+    in-out property <color> danger: #f87171;
+    in-out property <color> success: #4ade80;
+    in-out property <length> radius: 6px;
+}
+
+export component FdmButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    height: 30px;
+    width: label.preferred-width + 24px;
+    border-radius: Theme.radius;
+    border-width: primary ? 0px : 1px;
+    border-color: Theme.border;
+    background: !root.enabled ? Theme.panel-2 : (touch.has-hover ? (primary ? Theme.accent-hover : #3a3e46) : (primary ? Theme.accent : Theme.panel-2));
+    opacity: root.enabled ? 1.0 : 0.55;
+
+    label := Text {
+        text: root.text;
+        color: root.primary ? #0b1215 : Theme.text;
+        font-size: 13px;
+        font-weight: root.primary ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component ProgressBar inherits Rectangle {
+    in property <float> value: 0;
+
+    height: 8px;
+    border-radius: 4px;
+    background: #33363c;
+
+    Rectangle {
+        width: parent.width * Math.max(0, Math.min(1, root.value));
+        height: parent.height;
+        border-radius: 4px;
+        background: Theme.accent;
+    }
+}
+
+export component MenuEntry inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    height: 32px;
+    border-radius: 4px;
+    background: entry-touch.has-hover && root.enabled ? Theme.row-hover : transparent;
+
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        color: root.enabled ? Theme.text : Theme.muted;
+        font-size: 13px;
+        vertical-alignment: center;
+    }
+
+    entry-touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component MenuSeparator inherits Rectangle {
+    height: 9px;
+
+    Rectangle {
+        y: 4px;
+        height: 1px;
+        background: Theme.border;
+    }
+}

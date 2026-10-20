@@ -136,6 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // video rows get far-away negative ids so they never collide with the queue or history
             let id = -(1_000_000 + video_seq.get());
             video_seq.set(video_seq.get() + 1);
+            let now = now_secs();
             push_item(
                 &ui,
                 DownloadItem {
@@ -150,6 +151,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     speed_bps: 0,
                     path: "".into(),
                     folder: dir_text.into(),
+                    size_text: "—".into(),
+                    speed_text: "—".into(),
+                    added_text: format_date(now).into(),
+                    size_kb: 0,
+                    added_at: now as i32,
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -181,6 +187,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 None => "?/s".to_string(),
                             };
                             item.speed_bps = progress.speed_bps.unwrap_or(0) as i32;
+                            item.speed_text = speed_text(progress.speed_bps.unwrap_or(0)).into();
+                            if let Some(total) = progress.total {
+                                item.size_text = human_bytes(total).into();
+                                item.size_kb = (total / 1024).min(i32::MAX as u64) as i32;
+                            }
                             item.detail =
                                 format!("{}{} · {speed}", human_bytes(progress.downloaded), total)
                                     .into();
@@ -218,6 +229,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             item.detail = "Finished".into();
                             item.state = "Finished".into();
+                            item.speed_bps = 0;
+                            item.speed_text = "—".into();
                         }
                         Err(error) => {
                             item.detail = format!("Failed: {error}").into();
@@ -251,6 +264,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let dir = PathBuf::from(ui.get_save_dir_text().as_str());
             let dir_text = dir.display().to_string();
+            let now = now_secs();
             let id = -(2_000_000 + torrent_seq.get());
             torrent_seq.set(torrent_seq.get() + 1);
             push_item(
@@ -267,6 +281,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     speed_bps: 0,
                     path: "".into(),
                     folder: dir_text.into(),
+                    size_text: "—".into(),
+                    speed_text: "—".into(),
+                    added_text: format_date(now).into(),
+                    size_kb: 0,
+                    added_at: now as i32,
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -283,6 +302,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let Some(ui) = ui_weak.upgrade() else { return };
                         with_item(&ui, id, |item| {
                             item.speed_bps = progress.down_bps as i32;
+                            item.speed_text = speed_text(progress.down_bps).into();
                             if progress.total == 0 {
                                 item.detail = format!(
                                     "getting metadata · {}/s",
@@ -291,6 +311,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .into();
                                 return;
                             }
+                            item.size_text = human_bytes(progress.total).into();
+                            item.size_kb = (progress.total / 1024).min(i32::MAX as u64) as i32;
                             item.progress = (progress.downloaded as f64 / progress.total as f64)
                                 .min(1.0) as f32;
                             item.detail = format!(
@@ -312,6 +334,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let Some(ui) = ui_weak.upgrade() else { return };
                     with_item(&ui, id, |item| {
                         item.speed_bps = 0;
+                        item.speed_text = "—".into();
                         match &outcome {
                             Ok(name) => {
                                 item.progress = 1.0;
@@ -392,6 +415,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // shortcut: removing a video/torrent row hides it, the transfer keeps running
             remove_item(&ui, id);
         }
+    });
+
+    ui.on_support_project(|| {
+        open_file(Path::new("https://ko-fi.com/dezfix"));
+    });
+
+    ui.on_show_about(|| {
+        // rfd blocks its thread while the dialog is open
+        std::thread::spawn(|| {
+            let _ = rfd::MessageDialog::new()
+                .set_title("DwV")
+                .set_description("DwV — download manager\nFiles, video and torrents in one window.")
+                .set_level(rfd::MessageLevel::Info)
+                .show();
+        });
+    });
+
+    ui.on_exit_app(|| {
+        let _ = slint::quit_event_loop();
     });
 
     ui.on_refilter({
@@ -620,6 +662,8 @@ fn refilter(ui: &AppWindow) {
                 .progress
                 .partial_cmp(&b.progress)
                 .unwrap_or(Ordering::Equal),
+            4 => a.size_kb.cmp(&b.size_kb),
+            5 => a.added_at.cmp(&b.added_at),
             _ => Ordering::Equal,
         });
         if ui.get_sort_desc() {
@@ -762,6 +806,12 @@ fn history_item(row: StoredDownload) -> DownloadItem {
             .unwrap_or_default()
             .into(),
         path: row.target.to_string_lossy().into_owned().into(),
+        size_text: human_bytes(row.total_bytes.unwrap_or(row.downloaded_bytes)).into(),
+        speed_text: "—".into(),
+        added_text: format_date(row.created_at).into(),
+        size_kb: (row.total_bytes.unwrap_or(row.downloaded_bytes) / 1024).min(i32::MAX as u64)
+            as i32,
+        added_at: row.created_at as i32,
     }
 }
 
@@ -806,6 +856,14 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                     .map(|dir| dir.display().to_string())
                     .unwrap_or_default()
                     .into(),
+                size_text: total
+                    .map(human_bytes)
+                    .unwrap_or_else(|| "—".to_string())
+                    .into(),
+                speed_text: "—".into(),
+                added_text: format_date(now_secs()).into(),
+                size_kb: (total.unwrap_or(0) / 1024).min(i32::MAX as u64) as i32,
+                added_at: now_secs() as i32,
             };
             match index {
                 Some(i) => model.set_row_data(i, item),
@@ -825,6 +883,11 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 .map(|total| (downloaded as f64 / total.max(1) as f64).min(1.0) as f32)
                 .unwrap_or(0.0);
             item.speed_bps = speed_bps as i32;
+            item.speed_text = speed_text(speed_bps).into();
+            if let Some(total) = total {
+                item.size_text = human_bytes(total).into();
+                item.size_kb = (total / 1024).min(i32::MAX as u64) as i32;
+            }
             item.detail = match total {
                 Some(total) => format!(
                     "{} / {} · {}/s",
@@ -864,6 +927,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             item.state = "Paused".into();
             item.detail = "Paused".into();
             item.speed_bps = 0;
+            item.speed_text = "—".into();
             model.set_row_data(i, item);
             refilter(ui);
         }
@@ -882,6 +946,7 @@ fn finish_item(
     item.paused = false;
     item.state = state.into();
     item.speed_bps = 0;
+    item.speed_text = "—".into();
     update(&mut item);
     model.set_row_data(i, item);
 }
@@ -1092,9 +1157,49 @@ fn human_bytes(bytes: u64) -> String {
     }
 }
 
+fn speed_text(bytes_per_sec: u64) -> String {
+    if bytes_per_sec == 0 {
+        "—".to_string()
+    } else {
+        format!("{}/s", human_bytes(bytes_per_sec))
+    }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn format_date(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!("{day:02}.{month:02}.{year}")
+}
+
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_dates() {
+        assert_eq!(format_date(0), "01.01.1970");
+        assert_eq!(format_date(1_700_000_000), "14.11.2023");
+    }
 
     #[test]
     fn classifies_links() {

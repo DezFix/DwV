@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use dwv_core::{Database, DownloadSpec, Queue, QueueConfig, QueueEvent, State, StoredDownload};
+use dwv_media::VideoQuality;
 use slint::{ComponentHandle, Model, VecModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,6 +34,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|&value| value > 0);
     ui.set_connections(connections);
     ui.set_speed_limit_kbps(speed_limit.map(|value| (value / 1024) as i32).unwrap_or(0));
+    let quality_index = db
+        .as_ref()
+        .and_then(|db| db.get_setting("video_quality").ok().flatten())
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(0)
+        .clamp(0, 3);
+    ui.set_video_quality(quality_index);
 
     let runtime = tokio::runtime::Runtime::new()?;
     let _guard = runtime.enter();
@@ -133,6 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            let quality = video_quality(ui.get_video_quality());
             // video rows get far-away negative ids so they never collide with the queue or history
             let id = -(1_000_000 + video_seq.get());
             video_seq.set(video_seq.get() + 1);
@@ -154,7 +163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle.spawn(async move {
                 let progress_weak = ui_weak.clone();
                 let mut last_emit = Instant::now() - Duration::from_secs(1);
-                let result = dwv_media::download_video(&url, &dir, |progress| {
+                let result = dwv_media::download_video(&url, &dir, quality, |progress| {
                     if last_emit.elapsed() < Duration::from_millis(250) {
                         return;
                     }
@@ -395,11 +404,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(ui) = ui_weak.upgrade() else { return };
             let connections = ui.get_connections().clamp(1, 32);
             let kbps = ui.get_speed_limit_kbps().max(0);
+            let video_quality = ui.get_video_quality().clamp(0, 3);
             ui.set_connections(connections);
             ui.set_speed_limit_kbps(kbps);
+            ui.set_video_quality(video_quality);
             if let Some(db) = db.as_ref() {
                 let _ = db.set_setting("connections", &connections.to_string());
                 let _ = db.set_setting("speed_limit", &(kbps as u64 * 1024).to_string());
+                let _ = db.set_setting("video_quality", &video_quality.to_string());
             }
             queue.set_speed_limit((kbps > 0).then_some(kbps as u64 * 1024));
         }
@@ -527,6 +539,15 @@ fn matches_filter(item: &DownloadItem, filter: i32) -> bool {
         4 => item.kind == "video",
         5 => item.kind == "torrent",
         _ => true,
+    }
+}
+
+fn video_quality(value: i32) -> VideoQuality {
+    match value {
+        1 => VideoQuality::P1080,
+        2 => VideoQuality::P720,
+        3 => VideoQuality::P480,
+        _ => VideoQuality::Best,
     }
 }
 

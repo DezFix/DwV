@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use dwv_core::{Download, DownloadSpec, Event, Outcome, Queue, QueueConfig, QueueEvent};
+use dwv_media::VideoQuality;
 
 struct Args {
     urls: Vec<String>,
@@ -58,6 +59,7 @@ async fn run(args: Args) -> ExitCode {
 fn run_video_mode(args: &[String]) -> ExitCode {
     let mut url = None;
     let mut dir = PathBuf::from(".");
+    let mut quality = VideoQuality::Best;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -68,6 +70,23 @@ fn run_video_mode(args: &[String]) -> ExitCode {
                     return ExitCode::from(2);
                 };
                 dir = PathBuf::from(value);
+            }
+            "-q" | "--quality" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("-q needs a value");
+                    return ExitCode::from(2);
+                };
+                quality = match value.as_str() {
+                    "best" => VideoQuality::Best,
+                    "1080" => VideoQuality::P1080,
+                    "720" => VideoQuality::P720,
+                    "480" => VideoQuality::P480,
+                    other => {
+                        eprintln!("unknown quality: {other} (expected best, 1080, 720 or 480)");
+                        return ExitCode::from(2);
+                    }
+                };
             }
             other if other.starts_with('-') => {
                 eprintln!("unknown flag: {other}");
@@ -82,7 +101,7 @@ fn run_video_mode(args: &[String]) -> ExitCode {
         i += 1;
     }
     let Some(url) = url else {
-        eprintln!("usage: dwv-cli video <url> [-d <dir>]");
+        eprintln!("usage: dwv-cli video <url> [-d <dir>] [-q <best|1080|720|480>]");
         return ExitCode::from(2);
     };
     let rt = match tokio::runtime::Runtime::new() {
@@ -93,7 +112,7 @@ fn run_video_mode(args: &[String]) -> ExitCode {
         }
     };
     rt.block_on(async move {
-        let result = dwv_media::download_video(&url, &dir, |p| {
+        let result = dwv_media::download_video(&url, &dir, quality, |p| {
             print!(
                 "\r{} / {}  {}/s          ",
                 fmt_size(Some(p.downloaded)),

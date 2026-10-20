@@ -1,4 +1,4 @@
-import { Button, HorizontalBox, LineEdit, ListView, SpinBox, VerticalBox } from "std-widgets.slint";
+import { Button, ComboBox, HorizontalBox, LineEdit, ListView, SpinBox, VerticalBox } from "std-widgets.slint";
 
 export struct DownloadItem {
     id: int,
@@ -27,6 +27,7 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-open: false;
     in-out property <int> connections: 8;
     in-out property <int> speed-limit-kbps: 0;
+    in-out property <int> video-quality: 0;
     in-out property <int> sort-key: 0;
     in-out property <bool> sort-desc: false;
 
@@ -134,44 +135,63 @@ export component AppWindow inherits Window {
             border-radius: 8px;
             background: #fafafb;
 
-            HorizontalBox {
-                padding: 8px;
-                spacing: 8px;
-                alignment: center;
+            VerticalBox {
+                HorizontalBox {
+                    padding: 8px;
+                    spacing: 8px;
+                    alignment: center;
 
-                Text {
-                    text: "Connections:";
-                    vertical-alignment: center;
-                }
+                    Text {
+                        text: "Connections:";
+                        vertical-alignment: center;
+                    }
 
-                SpinBox {
-                    minimum: 1;
-                    maximum: 32;
-                    value: root.connections;
-                    edited(value) => {
-                        root.connections = value;
+                    SpinBox {
+                        minimum: 1;
+                        maximum: 32;
+                        value: root.connections;
+                        edited(value) => {
+                            root.connections = value;
+                        }
+                    }
+
+                    Text {
+                        text: "Speed limit (KB/s, 0 = unlimited):";
+                        vertical-alignment: center;
+                    }
+
+                    SpinBox {
+                        minimum: 0;
+                        maximum: 1048576;
+                        value: root.speed-limit-kbps;
+                        edited(value) => {
+                            root.speed-limit-kbps = value;
+                        }
+                    }
+
+                    Button {
+                        text: "Save";
+                        clicked => {
+                            root.save-settings();
+                            root.settings-open = false;
+                        }
                     }
                 }
 
-                Text {
-                    text: "Speed limit (KB/s, 0 = unlimited):";
-                    vertical-alignment: center;
-                }
+                HorizontalBox {
+                    padding: 8px;
+                    spacing: 8px;
+                    alignment: center;
 
-                SpinBox {
-                    minimum: 0;
-                    maximum: 1048576;
-                    value: root.speed-limit-kbps;
-                    edited(value) => {
-                        root.speed-limit-kbps = value;
+                    Text {
+                        text: "Video quality:";
+                        vertical-alignment: center;
                     }
-                }
 
-                Button {
-                    text: "Save";
-                    clicked => {
-                        root.save-settings();
-                        root.settings-open = false;
+                    ComboBox {
+                        width: 160px;
+                        model: ["Best", "1080p", "720p", "480p"];
+                        current-index <=> root.video-quality;
                     }
                 }
             }

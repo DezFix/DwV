@@ -28,6 +28,25 @@ pub struct VideoProgress {
     pub speed_bps: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoQuality {
+    Best,
+    P1080,
+    P720,
+    P480,
+}
+
+impl VideoQuality {
+    pub fn ytdlp_format(self) -> &'static str {
+        match self {
+            Self::Best => "bv*+ba/b",
+            Self::P1080 => "bv*[height<=1080]+ba/b[height<=1080]",
+            Self::P720 => "bv*[height<=720]+ba/b[height<=720]",
+            Self::P480 => "bv*[height<=480]+ba/b[height<=480]",
+        }
+    }
+}
+
 pub fn bin_dir() -> Result<PathBuf, Error> {
     let appdata = std::env::var_os("APPDATA").ok_or(Error::NoAppData)?;
     Ok(PathBuf::from(appdata).join("DwV").join("bin"))
@@ -125,6 +144,7 @@ async fn extract_bin_files(zip_path: &Path, bin: &Path) -> Result<(), Error> {
 pub async fn download_video(
     url: &str,
     dir: &Path,
+    quality: VideoQuality,
     mut on_progress: impl FnMut(VideoProgress),
 ) -> Result<Option<PathBuf>, Error> {
     let ytdlp = ensure_ytdlp().await?;
@@ -145,7 +165,7 @@ pub async fn download_video(
             "{PROGRESS_PREFIX}%(progress.downloaded_bytes)s %(progress.total_bytes_estimate)s %(progress.speed)s"
         ))
         .arg("-f")
-        .arg("bv*+ba/b")
+        .arg(quality.ytdlp_format())
         .arg("-P")
         .arg(dir)
         .arg(url)
@@ -219,6 +239,23 @@ fn parse_destination(line: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_quality_formats() {
+        assert_eq!(VideoQuality::Best.ytdlp_format(), "bv*+ba/b");
+        assert_eq!(
+            VideoQuality::P1080.ytdlp_format(),
+            "bv*[height<=1080]+ba/b[height<=1080]"
+        );
+        assert_eq!(
+            VideoQuality::P720.ytdlp_format(),
+            "bv*[height<=720]+ba/b[height<=720]"
+        );
+        assert_eq!(
+            VideoQuality::P480.ytdlp_format(),
+            "bv*[height<=480]+ba/b[height<=480]"
+        );
+    }
 
     #[test]
     fn parses_progress_lines() {

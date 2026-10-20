@@ -27,6 +27,8 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-open: false;
     in-out property <int> connections: 8;
     in-out property <int> speed-limit-kbps: 0;
+    in-out property <int> sort-key: 0;
+    in-out property <bool> sort-desc: false;
 
     callback download-url(string);
     callback download-video(string);
@@ -231,6 +233,84 @@ export component AppWindow inherits Window {
                 color: #888888;
                 horizontal-alignment: center;
                 vertical-alignment: center;
+            }
+        }
+
+        HorizontalBox {
+            height: 24px;
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 10px;
+
+            Rectangle {
+                horizontal-stretch: 1;
+
+                Text {
+                    text: root.sort-key == 1 ? (root.sort-desc ? "Name ▼" : "Name ▲") : "Name";
+                    font-size: 12px;
+                    color: #666666;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        if (root.sort-key == 1) {
+                            root.sort-desc = !root.sort-desc;
+                        } else {
+                            root.sort-key = 1;
+                            root.sort-desc = false;
+                        }
+                        root.refilter();
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 140px;
+
+                Text {
+                    text: root.sort-key == 3 ? (root.sort-desc ? "Progress ▼" : "Progress ▲") : "Progress";
+                    font-size: 12px;
+                    color: #666666;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        if (root.sort-key == 3) {
+                            root.sort-desc = !root.sort-desc;
+                        } else {
+                            root.sort-key = 3;
+                            root.sort-desc = false;
+                        }
+                        root.refilter();
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 84px;
+
+                Text {
+                    text: root.sort-key == 2 ? (root.sort-desc ? "Status ▼" : "Status ▲") : "Status";
+                    font-size: 12px;
+                    color: #666666;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        if (root.sort-key == 2) {
+                            root.sort-desc = !root.sort-desc;
+                        } else {
+                            root.sort-key = 2;
+                            root.sort-desc = false;
+                        }
+                        root.refilter();
+                    }
+                }
             }
         }
 

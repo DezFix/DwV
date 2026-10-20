@@ -1,6 +1,7 @@
 slint::include_modules!();
 
 use std::cell::Cell;
+use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -491,6 +492,21 @@ fn refilter(ui: &AppWindow) {
             continue;
         }
         rows.push(item);
+    }
+    let sort_key = ui.get_sort_key();
+    if sort_key != 0 {
+        rows.sort_by(|a, b| match sort_key {
+            1 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            2 => a.state.as_str().cmp(b.state.as_str()),
+            3 => a
+                .progress
+                .partial_cmp(&b.progress)
+                .unwrap_or(Ordering::Equal),
+            _ => Ordering::Equal,
+        });
+        if ui.get_sort_desc() {
+            rows.reverse();
+        }
     }
     shown.set_vec(rows);
     let status = match active {

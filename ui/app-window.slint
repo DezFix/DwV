@@ -9,6 +9,7 @@ export struct DownloadItem {
     paused: bool,
     kind: string,
     state: string,
+    speed-bps: int,
 }
 
 export component AppWindow inherits Window {
@@ -22,6 +23,7 @@ export component AppWindow inherits Window {
     in-out property <string> save-dir-text;
     in-out property <int> filter: 0;
     in-out property <string> search-text;
+    in-out property <string> status-text;
 
     callback download-url(string);
     callback download-video(string);
@@ -248,6 +250,15 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+            }
+        }
+
+        HorizontalBox {
+            Text {
+                text: root.status-text;
+                color: #666666;
+                font-size: 12px;
+                vertical-alignment: center;
             }
         }
         }

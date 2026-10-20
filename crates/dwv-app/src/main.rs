@@ -118,6 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     paused: false,
                     kind: "video".into(),
                     state: "Active".into(),
+                    speed_bps: 0,
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -148,6 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Some(speed) => format!("{}/s", human_bytes(speed)),
                                 None => "?/s".to_string(),
                             };
+                            item.speed_bps = progress.speed_bps.unwrap_or(0) as i32;
                             item.detail =
                                 format!("{}{} · {speed}", human_bytes(progress.downloaded), total)
                                     .into();
@@ -219,6 +221,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     paused: false,
                     kind: "torrent".into(),
                     state: "Active".into(),
+                    speed_bps: 0,
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -234,6 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let _ = slint::invoke_from_event_loop(move || {
                         let Some(ui) = ui_weak.upgrade() else { return };
                         with_item(&ui, id, |item| {
+                            item.speed_bps = progress.down_bps as i32;
                             if progress.total == 0 {
                                 item.detail = format!(
                                     "getting metadata · {}/s",
@@ -261,18 +265,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(ui) = ui_weak.upgrade() else { return };
-                    with_item(&ui, id, |item| match &outcome {
-                        Ok(name) => {
-                            item.progress = 1.0;
-                            if let Some(name) = name {
-                                item.name = name.as_str().into();
+                    with_item(&ui, id, |item| {
+                        item.speed_bps = 0;
+                        match &outcome {
+                            Ok(name) => {
+                                item.progress = 1.0;
+                                if let Some(name) = name {
+                                    item.name = name.as_str().into();
+                                }
+                                item.detail = "Finished".into();
+                                item.state = "Finished".into();
                             }
-                            item.detail = "Finished".into();
-                            item.state = "Finished".into();
-                        }
-                        Err(error) => {
-                            item.detail = format!("Failed: {error}").into();
-                            item.state = "Failed".into();
+                            Err(error) => {
+                                item.detail = format!("Failed: {error}").into();
+                                item.state = "Failed".into();
+                            }
                         }
                     });
                 });
@@ -418,10 +425,16 @@ fn refilter(ui: &AppWindow) {
     let filter = ui.get_filter();
     let search = ui.get_search_text().to_lowercase();
     let mut rows = Vec::new();
+    let mut active = 0u32;
+    let mut speed = 0u64;
     for i in 0..all.row_count() {
         let Some(item) = all.row_data(i) else {
             continue;
         };
+        if item.state == "Active" {
+            active += 1;
+            speed += item.speed_bps.max(0) as u64;
+        }
         if !matches_filter(&item, filter) {
             continue;
         }
@@ -434,6 +447,11 @@ fn refilter(ui: &AppWindow) {
         rows.push(item);
     }
     shown.set_vec(rows);
+    let status = match active {
+        0 => "idle".to_string(),
+        n => format!("{n} active · {}/s", human_bytes(speed)),
+    };
+    ui.set_status_text(status.into());
 }
 
 fn matches_filter(item: &DownloadItem, filter: i32) -> bool {
@@ -547,6 +565,7 @@ fn history_item(row: StoredDownload) -> DownloadItem {
         paused: false,
         kind: "file".into(),
         state: state.into(),
+        speed_bps: 0,
     }
 }
 
@@ -584,6 +603,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 paused: false,
                 kind: "file".into(),
                 state: "Active".into(),
+                speed_bps: 0,
             };
             match index {
                 Some(i) => model.set_row_data(i, item),
@@ -602,6 +622,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             item.progress = total
                 .map(|total| (downloaded as f64 / total.max(1) as f64).min(1.0) as f32)
                 .unwrap_or(0.0);
+            item.speed_bps = speed_bps as i32;
             item.detail = match total {
                 Some(total) => format!(
                     "{} / {} · {}/s",
@@ -640,6 +661,7 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             item.paused = true;
             item.state = "Paused".into();
             item.detail = "Paused".into();
+            item.speed_bps = 0;
             model.set_row_data(i, item);
             refilter(ui);
         }
@@ -657,6 +679,7 @@ fn finish_item(
     item.active = false;
     item.paused = false;
     item.state = state.into();
+    item.speed_bps = 0;
     update(&mut item);
     model.set_row_data(i, item);
 }

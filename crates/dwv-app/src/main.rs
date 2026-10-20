@@ -1,14 +1,17 @@
 slint::include_modules!();
 
 use std::cell::Cell;
-use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dwv_core::{Database, DownloadSpec, Queue, QueueConfig, QueueEvent, State, StoredDownload};
 use dwv_media::VideoQuality;
 use slint::{ComponentHandle, Model, VecModel};
+
+type UrlMap = Arc<Mutex<HashMap<String, String>>>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
@@ -52,6 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         db.clone(),
     );
 
+    let urls: UrlMap = Arc::new(Mutex::new(HashMap::new()));
+
     let (ipc_tx, mut ipc_rx) = tokio::sync::mpsc::unbounded_channel();
     runtime.spawn(async move {
         if let Err(error) = dwv_ipc::serve(dwv_ipc::DEFAULT_PORT, ipc_tx).await {
@@ -62,6 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui_weak = ui.as_weak();
     let ipc_queue = queue.clone();
     let ipc_handle = runtime.handle().clone();
+    let ipc_urls = urls.clone();
     runtime.spawn(async move {
         while let Some(request) = ipc_rx.recv().await {
             let dwv_ipc::Request::Add {
@@ -75,6 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ui_weak = ui_weak.clone();
             let queue = ipc_queue.clone();
             let handle = ipc_handle.clone();
+            let urls = ipc_urls.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(ui) = ui_weak.upgrade() else { return };
                 let dir = PathBuf::from(ui.get_save_dir_text().as_str());
@@ -87,6 +94,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     connections,
                 ) {
                     Ok(spec) => {
+                        urls.lock()
+                            .unwrap()
+                            .insert(spec.target.to_string_lossy().into_owned(), url);
                         handle.spawn(async move {
                             let _ = queue.add(spec).await;
                         });
@@ -98,12 +108,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let ui_weak = ui.as_weak();
+    let event_urls = urls.clone();
     runtime.spawn(async move {
         while let Some(event) = events.recv().await {
             let ui_weak = ui_weak.clone();
+            let urls = event_urls.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_weak.upgrade() {
-                    apply_event(&ui, event);
+                    apply_event(&ui, event, &urls);
                 }
             });
         }
@@ -113,9 +125,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ui_weak = ui.as_weak();
         let queue = queue.clone();
         let handle = runtime.handle().clone();
+        let urls = urls.clone();
         move |text| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            add_link(&ui, &queue, &handle, text.as_str());
+            add_link(&ui, &queue, &handle, text.as_str(), &urls);
         }
     });
 
@@ -133,6 +146,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let dir = PathBuf::from(ui.get_save_dir_text().as_str());
             let dir_text = dir.display().to_string();
             let quality = video_quality(ui.get_video_quality());
+            let quality_text =
+                ["Best", "1080p", "720p", "480p"][ui.get_video_quality().clamp(0, 3) as usize];
             // video rows get far-away negative ids so they never collide with the queue or history
             let id = -(1_000_000 + video_seq.get());
             video_seq.set(video_seq.get() + 1);
@@ -156,6 +171,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     added_text: format_date(now).into(),
                     size_kb: 0,
                     added_at: now as i32,
+                    ext: "VID".into(),
+                    category: "video".into(),
+                    status: "downloading".into(),
+                    done_text: "0 B".into(),
+                    eta_text: "—".into(),
+                    url: url.clone().into(),
+                    format: format!("Video, {quality_text}").into(),
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -188,6 +210,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             };
                             item.speed_bps = progress.speed_bps.unwrap_or(0) as i32;
                             item.speed_text = speed_text(progress.speed_bps.unwrap_or(0)).into();
+                            item.done_text = human_bytes(progress.downloaded).into();
+                            item.eta_text =
+                                eta_text(progress.downloaded, progress.total, progress.speed_bps)
+                                    .into();
                             if let Some(total) = progress.total {
                                 item.size_text = human_bytes(total).into();
                                 item.size_kb = (total / 1024).min(i32::MAX as u64) as i32;
@@ -229,12 +255,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             item.detail = "Finished".into();
                             item.state = "Finished".into();
+                            item.status = "completed".into();
                             item.speed_bps = 0;
                             item.speed_text = "—".into();
+                            item.eta_text = "—".into();
+                            if item.size_text != "—" {
+                                item.done_text = item.size_text.clone();
+                            }
                         }
                         Err(error) => {
                             item.detail = format!("Failed: {error}").into();
                             item.state = "Failed".into();
+                            item.status = "failed".into();
+                            item.eta_text = "—".into();
                         }
                     });
                 });
@@ -286,6 +319,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     added_text: format_date(now).into(),
                     size_kb: 0,
                     added_at: now as i32,
+                    ext: "TOR".into(),
+                    category: "torrent".into(),
+                    status: "downloading".into(),
+                    done_text: "0 B".into(),
+                    eta_text: "—".into(),
+                    url: source.clone().into(),
+                    format: "".into(),
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -303,6 +343,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         with_item(&ui, id, |item| {
                             item.speed_bps = progress.down_bps as i32;
                             item.speed_text = speed_text(progress.down_bps).into();
+                            item.done_text = human_bytes(progress.downloaded).into();
+                            item.eta_text = eta_text(
+                                progress.downloaded,
+                                (progress.total > 0).then_some(progress.total),
+                                Some(progress.down_bps),
+                            )
+                            .into();
                             if progress.total == 0 {
                                 item.detail = format!(
                                     "getting metadata · {}/s",
@@ -335,6 +382,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     with_item(&ui, id, |item| {
                         item.speed_bps = 0;
                         item.speed_text = "—".into();
+                        item.eta_text = "—".into();
                         match &outcome {
                             Ok(name) => {
                                 item.progress = 1.0;
@@ -343,10 +391,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 item.detail = "Finished".into();
                                 item.state = "Finished".into();
+                                item.status = "completed".into();
+                                if item.size_text != "—" {
+                                    item.done_text = item.size_text.clone();
+                                }
                             }
                             Err(error) => {
                                 item.detail = format!("Failed: {error}").into();
                                 item.state = "Failed".into();
+                                item.status = "failed".into();
                             }
                         }
                     });
@@ -365,6 +418,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 queue.resume(id as u64);
             } else {
                 queue.pause(id as u64);
+            }
+        }
+    });
+
+    ui.on_pause_all({
+        let ui_weak = ui.as_weak();
+        let queue = queue.clone();
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let all = ui.get_all_downloads();
+            let Some(model) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+                return;
+            };
+            for i in 0..model.row_count() {
+                if let Some(item) = model.row_data(i)
+                    && item.active
+                    && !item.paused
+                    && item.id > 0
+                {
+                    queue.pause(item.id as u64);
+                }
+            }
+        }
+    });
+
+    ui.on_resume_all({
+        let ui_weak = ui.as_weak();
+        let queue = queue.clone();
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let all = ui.get_all_downloads();
+            let Some(model) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+                return;
+            };
+            for i in 0..model.row_count() {
+                if let Some(item) = model.row_data(i)
+                    && item.paused
+                    && item.id > 0
+                {
+                    queue.resume(item.id as u64);
+                }
             }
         }
     });
@@ -449,6 +543,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ui_weak = ui.as_weak();
         let queue = queue.clone();
         let handle = runtime.handle().clone();
+        let urls = urls.clone();
         move |data: slint::DataTransfer| {
             let Some(ui) = ui_weak.upgrade() else { return };
             // shortcut: only the first dropped file is handled
@@ -456,7 +551,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Ok(mut paths) = data.file_paths()
                     && let Some(path) = paths.next()
                 {
-                    add_link(&ui, &queue, &handle, &path.to_string_lossy());
+                    add_link(&ui, &queue, &handle, &path.to_string_lossy(), &urls);
                 }
                 return;
             }
@@ -464,7 +559,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             let Ok(text) = data.plain_text() else { return };
-            add_link(&ui, &queue, &handle, text.trim());
+            add_link(&ui, &queue, &handle, text.trim(), &urls);
         }
     });
 
@@ -552,6 +647,11 @@ fn remove_item(ui: &AppWindow, id: i32) {
         (0..model.row_count()).find(|&i| model.row_data(i).is_some_and(|item| item.id == id))
     {
         model.remove(index);
+        if ui.get_selected_id() == id {
+            ui.set_selected_id(0);
+            ui.set_selected_index(-1);
+            ui.set_details_open(false);
+        }
         refilter(ui);
     }
 }
@@ -629,20 +729,29 @@ fn refilter(ui: &AppWindow) {
     let Some(shown) = shown.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
         return;
     };
-    let filter = ui.get_filter();
+    let filter = ui.get_filter_id().to_string();
     let search = ui.get_search_text().to_lowercase();
     let mut rows = Vec::new();
-    let mut active = 0u32;
+    let mut downloading = 0i32;
+    let mut queued = 0i32;
+    let mut paused = 0i32;
+    let mut completed = 0i32;
     let mut speed = 0u64;
     for i in 0..all.row_count() {
         let Some(item) = all.row_data(i) else {
             continue;
         };
-        if item.state == "Active" {
-            active += 1;
+        match item.status.as_str() {
+            "downloading" => downloading += 1,
+            "queued" => queued += 1,
+            "paused" => paused += 1,
+            "completed" => completed += 1,
+            _ => {}
+        }
+        if item.status == "downloading" {
             speed += item.speed_bps.max(0) as u64;
         }
-        if !matches_filter(&item, filter) {
+        if !matches_filter(&item, &filter) {
             continue;
         }
         if !search.is_empty()
@@ -653,43 +762,89 @@ fn refilter(ui: &AppWindow) {
         }
         rows.push(item);
     }
-    let sort_key = ui.get_sort_key();
-    if sort_key != 0 {
-        rows.sort_by(|a, b| match sort_key {
-            1 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            2 => a.state.as_str().cmp(b.state.as_str()),
-            3 => a
-                .progress
-                .partial_cmp(&b.progress)
-                .unwrap_or(Ordering::Equal),
-            4 => a.size_kb.cmp(&b.size_kb),
-            5 => a.added_at.cmp(&b.added_at),
-            _ => Ordering::Equal,
-        });
-        if ui.get_sort_desc() {
-            rows.reverse();
-        }
-    }
-    shown.set_vec(rows);
-    let status = match active {
-        0 => "idle".to_string(),
-        n => format!("{n} active · {}/s", human_bytes(speed)),
+    let all_count = all.row_count() as i32;
+    let counts = |category: &str| {
+        (0..all.row_count())
+            .filter_map(|i| all.row_data(i))
+            .filter(|item| item.category == category)
+            .count() as i32
     };
-    ui.set_status_text(status.into());
+    ui.set_status_categories(slint::ModelRc::new(VecModel::from(vec![
+        Category {
+            id: "all".into(),
+            label: "All downloads".into(),
+            count: all_count,
+        },
+        Category {
+            id: "downloading".into(),
+            label: "Downloading".into(),
+            count: downloading,
+        },
+        Category {
+            id: "queued".into(),
+            label: "Queued".into(),
+            count: queued,
+        },
+        Category {
+            id: "paused".into(),
+            label: "Paused".into(),
+            count: paused,
+        },
+        Category {
+            id: "completed".into(),
+            label: "Completed".into(),
+            count: completed,
+        },
+    ])));
+    ui.set_type_categories(slint::ModelRc::new(VecModel::from(vec![
+        Category {
+            id: "video".into(),
+            label: "Video".into(),
+            count: counts("video"),
+        },
+        Category {
+            id: "music".into(),
+            label: "Music".into(),
+            count: counts("music"),
+        },
+        Category {
+            id: "archive".into(),
+            label: "Archives".into(),
+            count: counts("archive"),
+        },
+        Category {
+            id: "program".into(),
+            label: "Programs".into(),
+            count: counts("program"),
+        },
+        Category {
+            id: "document".into(),
+            label: "Documents".into(),
+            count: counts("document"),
+        },
+        Category {
+            id: "torrent".into(),
+            label: "Torrents".into(),
+            count: counts("torrent"),
+        },
+    ])));
+    let summary = if downloading == 0 && queued == 0 {
+        "Idle".to_string()
+    } else {
+        format!("{downloading} downloading, {queued} queued")
+    };
+    ui.set_active_summary(summary.into());
+    ui.set_total_speed(format!("{}/s", human_bytes(speed)).into());
+    let shown_len = rows.len() as i32;
+    shown.set_vec(rows);
+    if ui.get_selected_index() >= shown_len {
+        ui.set_details_open(false);
+        ui.set_selected_index(-1);
+    }
 }
 
-fn matches_filter(item: &DownloadItem, filter: i32) -> bool {
-    match filter {
-        1 => item.state == "Active" || item.state == "Queued",
-        2 => item.state == "Paused",
-        3 => matches!(
-            item.state.as_str(),
-            "Finished" | "Failed" | "Cancelled" | "Interrupted"
-        ),
-        4 => item.kind == "video",
-        5 => item.kind == "torrent",
-        _ => true,
-    }
+fn matches_filter(item: &DownloadItem, filter: &str) -> bool {
+    filter == "all" || item.status == filter || item.category == filter
 }
 
 fn video_quality(value: i32) -> VideoQuality {
@@ -788,10 +943,17 @@ fn history_item(row: StoredDownload) -> DownloadItem {
             "Paused",
         ),
     };
+    let status = match row.state {
+        State::Completed => "completed",
+        State::Paused => "paused",
+        _ => "failed",
+    };
+    let done_text = human_bytes(row.downloaded_bytes);
+    let connections = row.connections;
     DownloadItem {
         // negative ids keep history rows from colliding with live queue ids
         id: -(row.id as i32),
-        name: name.into(),
+        name: name.clone().into(),
         progress,
         detail: detail.into(),
         active: false,
@@ -812,10 +974,17 @@ fn history_item(row: StoredDownload) -> DownloadItem {
         size_kb: (row.total_bytes.unwrap_or(row.downloaded_bytes) / 1024).min(i32::MAX as u64)
             as i32,
         added_at: row.created_at as i32,
+        ext: item_ext(&name).into(),
+        category: item_category(&name, "file").into(),
+        status: status.into(),
+        done_text: done_text.into(),
+        eta_text: "—".into(),
+        url: row.url.into(),
+        format: format!("{connections} connections").into(),
     }
 }
 
-fn apply_event(ui: &AppWindow, event: QueueEvent) {
+fn apply_event(ui: &AppWindow, event: QueueEvent, urls: &UrlMap) {
     let all = ui.get_all_downloads();
     let Some(model) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
         return;
@@ -831,7 +1000,12 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
     let index = (0..model.row_count()).find(|&i| model.row_data(i).is_some_and(|d| d.id == id));
 
     match event {
-        QueueEvent::Started { path, total, .. } => {
+        QueueEvent::Started {
+            path,
+            total,
+            connections,
+            ..
+        } => {
             let name = path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
@@ -840,9 +1014,14 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 Some(total) => format!("0 B / {}", human_bytes(total)),
                 None => "unknown size".to_string(),
             };
+            let url = urls
+                .lock()
+                .unwrap()
+                .remove(path.to_string_lossy().as_ref())
+                .unwrap_or_default();
             let item = DownloadItem {
                 id,
-                name: name.into(),
+                name: name.clone().into(),
                 progress: 0.0,
                 detail: detail.into(),
                 active: true,
@@ -864,6 +1043,13 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 added_text: format_date(now_secs()).into(),
                 size_kb: (total.unwrap_or(0) / 1024).min(i32::MAX as u64) as i32,
                 added_at: now_secs() as i32,
+                ext: item_ext(&name).into(),
+                category: item_category(&name, "file").into(),
+                status: "downloading".into(),
+                done_text: "0 B".into(),
+                eta_text: "—".into(),
+                url: url.into(),
+                format: format!("{connections} connections").into(),
             };
             match index {
                 Some(i) => model.set_row_data(i, item),
@@ -884,6 +1070,8 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 .unwrap_or(0.0);
             item.speed_bps = speed_bps as i32;
             item.speed_text = speed_text(speed_bps).into();
+            item.done_text = human_bytes(downloaded).into();
+            item.eta_text = eta_text(downloaded, total, Some(speed_bps)).into();
             if let Some(total) = total {
                 item.size_text = human_bytes(total).into();
                 item.size_kb = (total / 1024).min(i32::MAX as u64) as i32;
@@ -925,9 +1113,11 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
             let mut item = model.row_data(i).unwrap();
             item.paused = true;
             item.state = "Paused".into();
+            item.status = "paused".into();
             item.detail = "Paused".into();
             item.speed_bps = 0;
             item.speed_text = "—".into();
+            item.eta_text = "—".into();
             model.set_row_data(i, item);
             refilter(ui);
         }
@@ -945,9 +1135,14 @@ fn finish_item(
     item.active = false;
     item.paused = false;
     item.state = state.into();
+    item.status = item_status(state).into();
     item.speed_bps = 0;
     item.speed_text = "—".into();
+    item.eta_text = "—".into();
     update(&mut item);
+    if item.state == "Finished" && item.size_text != "—" {
+        item.done_text = item.size_text.clone();
+    }
     model.set_row_data(i, item);
 }
 
@@ -987,7 +1182,13 @@ fn classify_link(text: &str) -> Result<LinkKind, &'static str> {
     Ok(LinkKind::File)
 }
 
-fn add_link(ui: &AppWindow, queue: &Queue, handle: &tokio::runtime::Handle, raw: &str) {
+fn add_link(
+    ui: &AppWindow,
+    queue: &Queue,
+    handle: &tokio::runtime::Handle,
+    raw: &str,
+    urls: &UrlMap,
+) {
     let text = raw.trim();
     if text.is_empty() {
         return;
@@ -1007,6 +1208,9 @@ fn add_link(ui: &AppWindow, queue: &Queue, handle: &tokio::runtime::Handle, raw:
             let connections = ui.get_connections().clamp(1, 32) as usize;
             match spec_from_url(text, &dir, connections) {
                 Ok(spec) => {
+                    urls.lock()
+                        .unwrap()
+                        .insert(spec.target.to_string_lossy().into_owned(), text.to_string());
                     let queue = queue.clone();
                     handle.spawn(async move {
                         let _ = queue.add(spec).await;
@@ -1165,6 +1369,69 @@ fn speed_text(bytes_per_sec: u64) -> String {
     }
 }
 
+fn item_ext(name: &str) -> String {
+    Path::new(name)
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_uppercase())
+        .filter(|ext| !ext.is_empty())
+        .map(|ext| ext.chars().take(4).collect())
+        .unwrap_or_else(|| "FILE".to_string())
+}
+
+fn item_category(name: &str, kind: &str) -> &'static str {
+    if kind == "torrent" {
+        return "torrent";
+    }
+    if kind == "video" {
+        return "video";
+    }
+    let ext = Path::new(name)
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "mp3" | "flac" | "wav" | "ogg" | "m4a" | "aac" | "opus" => "music",
+        "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" => "archive",
+        "exe" | "msi" | "iso" | "dmg" | "msix" | "apk" => "program",
+        "pdf" | "doc" | "docx" | "txt" | "md" | "epub" | "xls" | "xlsx" | "ppt" | "pptx"
+        | "csv" => "document",
+        "mp4" | "mkv" | "webm" | "avi" | "mov" | "mpg" | "mpeg" | "flv" => "video",
+        _ => "other",
+    }
+}
+
+fn item_status(state: &str) -> &'static str {
+    match state {
+        "Active" => "downloading",
+        "Queued" => "queued",
+        "Paused" => "paused",
+        "Finished" => "completed",
+        "Failed" | "Cancelled" | "Interrupted" => "failed",
+        _ => "other",
+    }
+}
+
+fn eta_text(downloaded: u64, total: Option<u64>, speed_bps: Option<u64>) -> String {
+    let (Some(total), Some(speed)) = (total, speed_bps) else {
+        return "—".to_string();
+    };
+    if speed == 0 {
+        return "—".to_string();
+    }
+    let remaining = total.saturating_sub(downloaded);
+    if remaining == 0 {
+        return "—".to_string();
+    }
+    let secs = remaining / speed;
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m {}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+    }
+}
+
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1199,6 +1466,20 @@ mod tests {
     fn formats_dates() {
         assert_eq!(format_date(0), "01.01.1970");
         assert_eq!(format_date(1_700_000_000), "14.11.2023");
+    }
+
+    #[test]
+    fn categorizes_files_and_eta() {
+        assert_eq!(item_category("movie.MKV", "file"), "video");
+        assert_eq!(item_category("album.flac", "file"), "music");
+        assert_eq!(item_category("setup.exe", "file"), "program");
+        assert_eq!(item_category("book.pdf", "file"), "document");
+        assert_eq!(item_category("data.bin", "file"), "other");
+        assert_eq!(item_category("anything", "torrent"), "torrent");
+        assert_eq!(item_ext("movie.mkv"), "MKV");
+        assert_eq!(item_ext("no-ext"), "FILE");
+        assert_eq!(eta_text(0, Some(2048), Some(1024)), "2s");
+        assert_eq!(eta_text(1024, Some(2048), Some(0)), "—");
     }
 
     #[test]

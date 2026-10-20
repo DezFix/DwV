@@ -1,85 +1,153 @@
 export global Theme {
-    in-out property <color> bg: #1e1f22;
-    in-out property <color> panel: #25272b;
-    in-out property <color> panel-2: #2a2d33;
-    in-out property <color> row: #23252a;
-    in-out property <color> row-hover: #2c3037;
-    in-out property <color> selected: #2f4a6e;
-    in-out property <color> border: #34373d;
-    in-out property <color> text: #e6e8ec;
-    in-out property <color> muted: #98a2b3;
-    in-out property <color> accent: #4c9aff;
-    in-out property <color> accent-hover: #6cb0ff;
-    in-out property <color> danger: #f87171;
-    in-out property <color> success: #4ade80;
-    in-out property <length> radius: 6px;
+    out property <color> bg: #17191e;
+    out property <color> panel: #1d2026;
+    out property <color> border: #2b2f38;
+    out property <color> hover: #252932;
+    out property <color> track: #2f3440;
+    out property <color> text: #e6e8ec;
+    out property <color> text-dim: #8a90a0;
+    out property <color> accent: #3d8bfd;
+    out property <color> accent-soft: #3d8bfd30;
+    out property <color> green: #2fb36b;
+    out property <color> amber: #e5a50a;
+    out property <color> red: #e5484d;
+
+    out property <length> col-size: 100px;
+    out property <length> col-speed: 96px;
+    out property <length> col-eta: 80px;
+    out property <length> col-actions: 150px;
+
+    pure public function kind-color(k: string) -> color {
+        return k == "video" ? #e5484d
+             : k == "music" ? #a259ff
+             : k == "archive" ? #e5a50a
+             : k == "torrent" ? #14b8a6
+             : k == "program" ? #2fb36b
+             : #3d8bfd;
+    }
+
+    pure public function status-color(s: string) -> color {
+        return s == "completed" ? green
+             : s == "paused" ? amber
+             : s == "failed" ? red
+             : s == "queued" ? text-dim
+             : accent;
+    }
 }
 
-export component FdmButton inherits Rectangle {
+export component Chip inherits Rectangle {
     in property <string> text;
     in property <bool> primary: false;
     in property <bool> enabled: true;
-    callback clicked;
+    callback clicked();
 
-    height: 30px;
-    width: label.preferred-width + 24px;
-    border-radius: Theme.radius;
-    border-width: primary ? 0px : 1px;
+    border-radius: 6px;
+    border-width: root.primary ? 0px : 1px;
     border-color: Theme.border;
-    background: !root.enabled ? Theme.panel-2 : (touch.has-hover ? (primary ? Theme.accent-hover : #3a3e46) : (primary ? Theme.accent : Theme.panel-2));
-    opacity: root.enabled ? 1.0 : 0.55;
+    background: !root.enabled ? transparent
+        : root.primary ? (ta.has-hover ? Theme.accent.brighter(0.15) : Theme.accent)
+        : (ta.has-hover ? Theme.hover : transparent);
+    opacity: root.enabled ? 1.0 : 0.45;
 
-    label := Text {
-        text: root.text;
-        color: root.primary ? #0b1215 : Theme.text;
-        font-size: 13px;
-        font-weight: root.primary ? 600 : 400;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-    }
-
-    touch := TouchArea {
+    ta := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
         }
     }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        min-height: 28px;
+        Text {
+            text: root.text;
+            font-size: 12px;
+            color: root.primary ? #ffffff : Theme.text;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+export component SidebarItem inherits Rectangle {
+    in property <string> label;
+    in property <int> count;
+    in property <bool> active;
+    in property <color> dot: Theme.text-dim;
+    callback clicked();
+
+    height: 34px;
+    border-radius: 6px;
+    background: root.active ? Theme.accent-soft : (ta.has-hover ? Theme.hover : transparent);
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: root.dot;
+            }
+        }
+
+        Text {
+            text: root.label;
+            font-size: 13px;
+            font-weight: root.active ? 600 : 400;
+            color: root.active ? Theme.accent : Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            visible: root.count >= 0;
+            text: root.count;
+            font-size: 12px;
+            color: Theme.text-dim;
+            vertical-alignment: center;
+        }
+    }
 }
 
 export component ProgressBar inherits Rectangle {
     in property <float> value: 0;
+    in property <color> fill: Theme.accent;
 
-    height: 8px;
-    border-radius: 4px;
-    background: #33363c;
+    height: 6px;
+    border-radius: 3px;
+    background: Theme.track;
 
     Rectangle {
         width: parent.width * Math.max(0, Math.min(1, root.value));
         height: parent.height;
-        border-radius: 4px;
-        background: Theme.accent;
+        border-radius: 3px;
+        background: root.fill;
     }
 }
 
 export component MenuEntry inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
-    callback clicked;
+    in property <bool> danger: false;
+    callback clicked();
 
-    height: 32px;
+    height: 30px;
     border-radius: 4px;
-    background: entry-touch.has-hover && root.enabled ? Theme.row-hover : transparent;
-
-    Text {
-        x: 10px;
-        width: parent.width - 20px;
-        height: parent.height;
-        text: root.text;
-        color: root.enabled ? Theme.text : Theme.muted;
-        font-size: 13px;
-        vertical-alignment: center;
-    }
+    background: entry-touch.has-hover && root.enabled ? Theme.hover : transparent;
 
     entry-touch := TouchArea {
         enabled: root.enabled;
@@ -87,6 +155,15 @@ export component MenuEntry inherits Rectangle {
         clicked => {
             root.clicked();
         }
+    }
+
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        text: root.text;
+        font-size: 13px;
+        color: root.danger ? Theme.red : (root.enabled ? Theme.text : Theme.text-dim);
+        vertical-alignment: center;
     }
 }
 
@@ -97,5 +174,85 @@ export component MenuSeparator inherits Rectangle {
         y: 4px;
         height: 1px;
         background: Theme.border;
+    }
+}
+
+export component TabButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> active;
+    callback clicked();
+
+    border-radius: 6px;
+    background: root.active ? Theme.accent-soft : (ta.has-hover ? Theme.hover : transparent);
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        min-height: 30px;
+        Text {
+            text: root.text;
+            font-size: 13px;
+            font-weight: root.active ? 600 : 400;
+            color: root.active ? Theme.accent : Theme.text;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component Field inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    spacing: 12px;
+    height: 22px;
+
+    Text {
+        text: root.label;
+        width: 96px;
+        font-size: 12px;
+        color: Theme.text-dim;
+        vertical-alignment: center;
+    }
+
+    Text {
+        text: root.value;
+        font-size: 12px;
+        color: Theme.text;
+        vertical-alignment: center;
+        overflow: elide;
+        horizontal-stretch: 1;
+    }
+}
+
+export component SettingRow inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> hint;
+    spacing: 16px;
+    min-height: 44px;
+
+    VerticalLayout {
+        alignment: center;
+        horizontal-stretch: 1;
+        Text {
+            text: root.title;
+            font-size: 13px;
+            color: Theme.text;
+        }
+        Text {
+            text: root.hint;
+            font-size: 11px;
+            color: Theme.text-dim;
+        }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        @children
     }
 }

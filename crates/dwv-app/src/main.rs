@@ -109,23 +109,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    ui.on_download_url({
+    ui.on_add_link({
         let ui_weak = ui.as_weak();
         let queue = queue.clone();
         let handle = runtime.handle().clone();
-        move |url| {
+        move |text| {
             let Some(ui) = ui_weak.upgrade() else { return };
-            let dir = PathBuf::from(ui.get_save_dir_text().as_str());
-            let connections = ui.get_connections().clamp(1, 32) as usize;
-            match spec_from_url(url.as_str(), &dir, connections) {
-                Ok(spec) => {
-                    let queue = queue.clone();
-                    handle.spawn(async move {
-                        let _ = queue.add(spec).await;
-                    });
-                }
-                Err(error) => ui.set_error_text(error.into()),
-            }
+            add_link(&ui, &queue, &handle, text.as_str());
         }
     });
 
@@ -359,22 +349,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ui.on_dropped({
         let ui_weak = ui.as_weak();
+        let queue = queue.clone();
+        let handle = runtime.handle().clone();
         move |data: slint::DataTransfer| {
             let Some(ui) = ui_weak.upgrade() else { return };
             // shortcut: only the first dropped file is handled
             if data.has_file_paths() {
-                let first = data
-                    .file_paths()
-                    .ok()
-                    .and_then(|mut paths| paths.next().map(Path::to_path_buf));
-                let Some(path) = first else { return };
-                if path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("torrent"))
+                if let Ok(mut paths) = data.file_paths()
+                    && let Some(path) = paths.next()
                 {
-                    ui.invoke_download_torrent(path.to_string_lossy().into_owned().into());
-                } else {
-                    ui.set_error_text("only .torrent files can be dropped".into());
+                    add_link(&ui, &queue, &handle, &path.to_string_lossy());
                 }
                 return;
             }
@@ -382,17 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             let Ok(text) = data.plain_text() else { return };
-            let text = text.trim().to_string();
-            if text.is_empty() {
-                return;
-            }
-            if text.starts_with("magnet:") {
-                ui.invoke_download_torrent(text.into());
-            } else if text.starts_with("http://") || text.starts_with("https://") {
-                ui.invoke_download_url(text.into());
-            } else {
-                ui.set_error_text("drop a URL or a .torrent file".into());
-            }
+            add_link(&ui, &queue, &handle, text.trim());
         }
     });
 
@@ -783,6 +757,98 @@ fn finish_item(
     model.set_row_data(i, item);
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum LinkKind {
+    File,
+    Video,
+    Torrent,
+}
+
+fn classify_link(text: &str) -> Result<LinkKind, &'static str> {
+    if Path::new(text).is_file() {
+        return if text.to_lowercase().ends_with(".torrent") {
+            Ok(LinkKind::Torrent)
+        } else {
+            Err("only .torrent files can be opened from disk")
+        };
+    }
+    let lower = text.to_lowercase();
+    if lower.starts_with("magnet:") {
+        return Ok(LinkKind::Torrent);
+    }
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err("expected a URL, a magnet link or a .torrent file");
+    }
+    if lower
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default()
+        .ends_with(".torrent")
+    {
+        return Ok(LinkKind::Torrent);
+    }
+    if is_video_url(&lower) {
+        return Ok(LinkKind::Video);
+    }
+    Ok(LinkKind::File)
+}
+
+fn add_link(ui: &AppWindow, queue: &Queue, handle: &tokio::runtime::Handle, raw: &str) {
+    let text = raw.trim();
+    if text.is_empty() {
+        return;
+    }
+    let kind = match classify_link(text) {
+        Ok(kind) => kind,
+        Err(error) => {
+            ui.set_error_text(error.into());
+            return;
+        }
+    };
+    match kind {
+        LinkKind::Torrent => ui.invoke_download_torrent(text.into()),
+        LinkKind::Video => ui.invoke_download_video(text.into()),
+        LinkKind::File => {
+            let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            let connections = ui.get_connections().clamp(1, 32) as usize;
+            match spec_from_url(text, &dir, connections) {
+                Ok(spec) => {
+                    let queue = queue.clone();
+                    handle.spawn(async move {
+                        let _ = queue.add(spec).await;
+                    });
+                }
+                Err(error) => ui.set_error_text(error.into()),
+            }
+        }
+    }
+}
+
+fn is_video_url(url: &str) -> bool {
+    let host = url
+        .split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches("www.");
+    const VIDEO_HOSTS: [&str; 9] = [
+        "youtube.com",
+        "youtu.be",
+        "vimeo.com",
+        "dailymotion.com",
+        "twitch.tv",
+        "tiktok.com",
+        "instagram.com",
+        "x.com",
+        "twitter.com",
+    ];
+    VIDEO_HOSTS
+        .iter()
+        .any(|known| host == *known || host.ends_with(&format!(".{known}")))
+}
+
 fn spec_from_url(url: &str, dir: &Path, connections: usize) -> Result<DownloadSpec, String> {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
@@ -900,6 +966,29 @@ fn human_bytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classifies_links() {
+        assert_eq!(
+            classify_link("magnet:?xt=urn:btih:abc"),
+            Ok(LinkKind::Torrent)
+        );
+        assert_eq!(
+            classify_link("https://example.com/debian.torrent?mirror=1"),
+            Ok(LinkKind::Torrent)
+        );
+        assert_eq!(
+            classify_link("https://www.youtube.com/watch?v=x"),
+            Ok(LinkKind::Video)
+        );
+        assert_eq!(classify_link("https://youtu.be/x"), Ok(LinkKind::Video));
+        assert_eq!(
+            classify_link("https://example.com/file.zip"),
+            Ok(LinkKind::File)
+        );
+        assert!(classify_link("ftp://example.com/file").is_err());
+        assert!(classify_link("just some text").is_err());
+    }
 
     #[test]
     fn sanitize_replaces_reserved_characters() {

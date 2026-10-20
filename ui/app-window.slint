@@ -60,7 +60,7 @@ export component AppWindow inherits Window {
     in-out property <int> sort-key: 0;
     in-out property <bool> sort-desc: false;
 
-    callback download-url(string);
+    callback add-link(string);
     callback download-video(string);
     callback download-torrent(string);
     callback cancel-download(int);
@@ -87,41 +87,21 @@ export component AppWindow inherits Window {
             spacing: 8px;
 
             url-field := LineEdit {
-                placeholder-text: "Paste a URL and press Download";
+                placeholder-text: "Paste a link or drop a file — type is detected automatically";
                 edited => {
                     root.error-text = "";
                 }
                 accepted => {
-                    root.download-url(self.text);
+                    root.add-link(self.text);
                     self.text = "";
                 }
             }
 
             Button {
-                text: "Download";
+                text: "Add";
                 clicked => {
                     if (url-field.text != "") {
-                        root.download-url(url-field.text);
-                        url-field.text = "";
-                    }
-                }
-            }
-
-            Button {
-                text: "Video";
-                clicked => {
-                    if (url-field.text != "") {
-                        root.download-video(url-field.text);
-                        url-field.text = "";
-                    }
-                }
-            }
-
-            Button {
-                text: "Torrent";
-                clicked => {
-                    if (url-field.text != "") {
-                        root.download-torrent(url-field.text);
+                        root.add-link(url-field.text);
                         url-field.text = "";
                     }
                 }

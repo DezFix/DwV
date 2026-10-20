@@ -131,6 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            let dir_text = dir.display().to_string();
             let quality = video_quality(ui.get_video_quality());
             // video rows get far-away negative ids so they never collide with the queue or history
             let id = -(1_000_000 + video_seq.get());
@@ -147,6 +148,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     kind: "video".into(),
                     state: "Active".into(),
                     speed_bps: 0,
+                    path: "".into(),
+                    folder: dir_text.into(),
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -187,20 +190,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await;
                 let outcome = match result {
                     Ok(path) => {
-                        let name = path.and_then(|path| {
-                            path.file_name().map(|n| n.to_string_lossy().into_owned())
+                        let file = path.map(|path| path.to_string_lossy().into_owned());
+                        let name = file.as_deref().and_then(|file| {
+                            Path::new(file)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
                         });
-                        Ok(name)
+                        Ok((name, file))
                     }
                     Err(error) => Err(error.to_string()),
                 };
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(ui) = ui_weak.upgrade() else { return };
                     with_item(&ui, id, |item| match &outcome {
-                        Ok(name) => {
+                        Ok((name, file)) => {
                             item.progress = 1.0;
                             if let Some(name) = name {
                                 item.name = name.as_str().into();
+                            }
+                            if let Some(file) = file {
+                                item.path = file.as_str().into();
+                                item.folder = Path::new(file)
+                                    .parent()
+                                    .map(|dir| dir.display().to_string())
+                                    .unwrap_or_default()
+                                    .into();
                             }
                             item.detail = "Finished".into();
                             item.state = "Finished".into();
@@ -236,6 +250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             let dir = PathBuf::from(ui.get_save_dir_text().as_str());
+            let dir_text = dir.display().to_string();
             let id = -(2_000_000 + torrent_seq.get());
             torrent_seq.set(torrent_seq.get() + 1);
             push_item(
@@ -250,6 +265,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     kind: "torrent".into(),
                     state: "Active".into(),
                     speed_bps: 0,
+                    path: "".into(),
+                    folder: dir_text.into(),
                 },
             );
             let ui_weak = ui_weak.clone();
@@ -315,15 +332,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    ui.on_cancel_download({
-        let queue = queue.clone();
-        move |id| {
-            if id > 0 {
-                queue.cancel(id as u64);
-            }
-        }
-    });
-
     ui.on_pause_download({
         let queue = queue.clone();
         move |id, paused| {
@@ -335,6 +343,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 queue.pause(id as u64);
             }
+        }
+    });
+
+    ui.on_open_item({
+        let ui_weak = ui.as_weak();
+        move |id| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let Some(item) = find_item(&ui, id) else {
+                return;
+            };
+            if !item.path.is_empty() {
+                open_file(Path::new(item.path.as_str()));
+            } else if !item.folder.is_empty() {
+                open_file(Path::new(item.folder.as_str()));
+            }
+        }
+    });
+
+    ui.on_show_folder({
+        let ui_weak = ui.as_weak();
+        move |id| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let Some(item) = find_item(&ui, id) else {
+                return;
+            };
+            if !item.path.is_empty() {
+                reveal_path(Path::new(item.path.as_str()));
+            } else if !item.folder.is_empty() {
+                open_file(Path::new(item.folder.as_str()));
+            }
+        }
+    });
+
+    ui.on_remove_item({
+        let ui_weak = ui.as_weak();
+        let queue = queue.clone();
+        let db = db.clone();
+        move |id| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            if id > 0 {
+                queue.cancel(id as u64);
+            } else if id > -1_000_000
+                && let Some(db) = db.as_ref()
+            {
+                let _ = db.delete(-id as i64);
+            }
+            // shortcut: removing a video/torrent row hides it, the transfer keeps running
+            remove_item(&ui, id);
         }
     });
 
@@ -437,6 +493,66 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ui.run()?;
     Ok(())
+}
+
+fn find_item(ui: &AppWindow, id: i32) -> Option<DownloadItem> {
+    let all = ui.get_all_downloads();
+    let model = all.as_any().downcast_ref::<VecModel<DownloadItem>>()?;
+    (0..model.row_count()).find_map(|i| model.row_data(i).filter(|item| item.id == id))
+}
+
+fn remove_item(ui: &AppWindow, id: i32) {
+    let all = ui.get_all_downloads();
+    let Some(model) = all.as_any().downcast_ref::<VecModel<DownloadItem>>() else {
+        return;
+    };
+    if let Some(index) =
+        (0..model.row_count()).find(|&i| model.row_data(i).is_some_and(|item| item.id == id))
+    {
+        model.remove(index);
+        refilter(ui);
+    }
+}
+
+fn open_file(path: &Path) {
+    if path.as_os_str().is_empty() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(path)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+    }
+}
+
+fn reveal_path(path: &Path) {
+    if path.as_os_str().is_empty() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(dir) = path.parent() {
+            let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+        }
+    }
 }
 
 fn push_item(ui: &AppWindow, item: DownloadItem) {
@@ -639,6 +755,13 @@ fn history_item(row: StoredDownload) -> DownloadItem {
         kind: "file".into(),
         state: state.into(),
         speed_bps: 0,
+        folder: row
+            .target
+            .parent()
+            .map(|dir| dir.display().to_string())
+            .unwrap_or_default()
+            .into(),
+        path: row.target.to_string_lossy().into_owned().into(),
     }
 }
 
@@ -677,6 +800,12 @@ fn apply_event(ui: &AppWindow, event: QueueEvent) {
                 kind: "file".into(),
                 state: "Active".into(),
                 speed_bps: 0,
+                path: path.to_string_lossy().into_owned().into(),
+                folder: path
+                    .parent()
+                    .map(|dir| dir.display().to_string())
+                    .unwrap_or_default()
+                    .into(),
             };
             match index {
                 Some(i) => model.set_row_data(i, item),

@@ -167,6 +167,12 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete(&self, id: i64) -> Result<(), Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM downloads WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     pub fn load_pending(&self) -> Result<Vec<StoredDownload>, Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

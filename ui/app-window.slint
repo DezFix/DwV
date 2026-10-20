@@ -10,6 +10,8 @@ export struct DownloadItem {
     kind: string,
     state: string,
     speed-bps: int,
+    path: string,
+    folder: string,
 }
 
 export component AppTray inherits SystemTrayIcon {
@@ -43,8 +45,8 @@ export component AppTray inherits SystemTrayIcon {
 export component AppWindow inherits Window {
     title: "DwV";
     icon: @image-url("../asset/DwV-icon.png");
-    width: 760px;
-    height: 520px;
+    width: 900px;
+    height: 620px;
     background: #16181d;
 
     in property <[DownloadItem]> all-downloads;
@@ -64,8 +66,10 @@ export component AppWindow inherits Window {
     callback add-link(string);
     callback download-video(string);
     callback download-torrent(string);
-    callback cancel-download(int);
     callback pause-download(int, bool);
+    callback open-item(int);
+    callback show-folder(int);
+    callback remove-item(int);
     callback choose-folder();
     callback refilter();
     callback dropped(data-transfer);
@@ -87,6 +91,30 @@ export component AppWindow inherits Window {
         HorizontalBox {
             spacing: 8px;
 
+            add-button := Rectangle {
+                height: 30px;
+                width: add-label.preferred-width + 28px;
+                border-radius: 6px;
+                background: add-touch.has-hover ? #5eead4 : #2dd4bf;
+
+                add-label := Text {
+                    text: "+ Add";
+                    color: #0b1215;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                add-touch := TouchArea {
+                    clicked => {
+                        if (url-field.text != "") {
+                            root.add-link(url-field.text);
+                            url-field.text = "";
+                        }
+                    }
+                }
+            }
+
             url-field := LineEdit {
                 placeholder-text: "Paste a link or drop a file — type is detected automatically";
                 edited => {
@@ -99,12 +127,9 @@ export component AppWindow inherits Window {
             }
 
             Button {
-                text: "Add";
+                text: "Settings";
                 clicked => {
-                    if (url-field.text != "") {
-                        root.add-link(url-field.text);
-                        url-field.text = "";
-                    }
+                    root.settings-open = !root.settings-open;
                 }
             }
         }
@@ -130,13 +155,6 @@ export component AppWindow inherits Window {
                 text: "Browse…";
                 clicked => {
                     root.choose-folder();
-                }
-            }
-
-            Button {
-                text: "Settings";
-                clicked => {
-                    root.settings-open = !root.settings-open;
                 }
             }
         }
@@ -349,7 +367,9 @@ export component AppWindow inherits Window {
             }
 
             Rectangle { width: 84px; }
-            Rectangle { width: 84px; }
+            Rectangle { width: 64px; }
+            Rectangle { width: 72px; }
+            Rectangle { width: 80px; }
         }
 
         ListView {
@@ -357,8 +377,10 @@ export component AppWindow inherits Window {
 
             for item in root.downloads : Rectangle {
                 height: 52px;
-                background: #232833;
+                background: row-touch.has-hover ? #2a3140 : #232833;
                 border-radius: 6px;
+
+                row-touch := TouchArea { }
 
                 HorizontalBox {
                     padding-left: 10px;
@@ -422,11 +444,28 @@ export component AppWindow inherits Window {
                     }
 
                     Button {
-                        text: "Cancel";
-                        width: 84px;
-                        enabled: item.active;
+                        text: "Open";
+                        width: 64px;
+                        enabled: item.path != "" || item.folder != "";
                         clicked => {
-                            root.cancel-download(item.id);
+                            root.open-item(item.id);
+                        }
+                    }
+
+                    Button {
+                        text: "Folder";
+                        width: 72px;
+                        enabled: item.folder != "";
+                        clicked => {
+                            root.show-folder(item.id);
+                        }
+                    }
+
+                    Button {
+                        text: "Remove";
+                        width: 80px;
+                        clicked => {
+                            root.remove-item(item.id);
                         }
                     }
                 }

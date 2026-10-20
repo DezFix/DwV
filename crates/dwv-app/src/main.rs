@@ -192,11 +192,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |source| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let source = source.trim().to_string();
+            let is_local =
+                source.to_lowercase().ends_with(".torrent") && Path::new(&source).is_file();
             if !(source.starts_with("magnet:")
                 || source.starts_with("http://")
-                || source.starts_with("https://"))
+                || source.starts_with("https://")
+                || is_local)
             {
-                ui.set_error_text("torrent source must be a magnet link or a .torrent URL".into());
+                ui.set_error_text(
+                    "torrent source must be a magnet link, a .torrent URL or a local .torrent file"
+                        .into(),
+                );
                 return;
             }
             let dir = PathBuf::from(ui.get_save_dir_text().as_str());
@@ -302,6 +308,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move || {
             if let Some(ui) = ui_weak.upgrade() {
                 refilter(&ui);
+            }
+        }
+    });
+
+    ui.on_dropped({
+        let ui_weak = ui.as_weak();
+        move |data: slint::DataTransfer| {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            // shortcut: only the first dropped file is handled
+            if data.has_file_paths() {
+                let first = data
+                    .file_paths()
+                    .ok()
+                    .and_then(|mut paths| paths.next().map(Path::to_path_buf));
+                let Some(path) = first else { return };
+                if path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("torrent"))
+                {
+                    ui.invoke_download_torrent(path.to_string_lossy().into_owned().into());
+                } else {
+                    ui.set_error_text("only .torrent files can be dropped".into());
+                }
+                return;
+            }
+            if !data.has_plain_text() {
+                return;
+            }
+            let Ok(text) = data.plain_text() else { return };
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                return;
+            }
+            if text.starts_with("magnet:") {
+                ui.invoke_download_torrent(text.into());
+            } else if text.starts_with("http://") || text.starts_with("https://") {
+                ui.invoke_download_url(text.into());
+            } else {
+                ui.set_error_text("drop a URL or a .torrent file".into());
             }
         }
     });

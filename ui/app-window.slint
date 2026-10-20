@@ -30,8 +30,18 @@ export component AppWindow inherits Window {
     callback pause-download(int, bool);
     callback choose-folder();
     callback refilter();
+    callback dropped(data-transfer);
 
-    VerticalBox {
+    DropArea {
+        can-drop(event) => {
+            return DragAction.copy;
+        }
+        dropped(event) => {
+            root.dropped(event.data);
+            return DragAction.copy;
+        }
+
+        VerticalBox {
         padding: 14px;
         spacing: 10px;
 
@@ -147,12 +157,19 @@ export component AppWindow inherits Window {
             font-size: 13px;
         }
 
-        if root.downloads.length == 0 : Text {
-            text: "No downloads to show";
-            color: #888888;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+        if root.downloads.length == 0 : Rectangle {
             vertical-stretch: 1;
+            border-width: 1px;
+            border-color: #c8ccd4;
+            border-radius: 8px;
+            background: #fafafb;
+
+            Text {
+                text: "Drag a URL or a .torrent file here";
+                color: #888888;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
         }
 
         ListView {
@@ -232,6 +249,7 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
         }
     }
 }

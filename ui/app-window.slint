@@ -1,5 +1,5 @@
 import { ComboBox, LineEdit, ListView, SpinBox } from "std-widgets.slint";
-import { Chip, Field, MenuEntry, MenuSeparator, ProgressBar, SettingRow, SidebarItem, TabButton, Theme } from "components.slint";
+import { Chip, Field, Icon, IconButton, MenuEntry, MenuSeparator, ProgressBar, SettingRow, SidebarItem, TabButton, Theme } from "components.slint";
 
 export struct DownloadItem {
     id: int,
@@ -62,7 +62,7 @@ export component AppTray inherits SystemTrayIcon {
 }
 
 export component AppWindow inherits Window {
-    title: "DwV";
+    title: "Download Manager";
     icon: @image-url("../asset/DwV-icon.png");
     min-width: 900px;
     min-height: 600px;
@@ -212,6 +212,8 @@ export component AppWindow inherits Window {
                     SidebarItem {
                         label: "Settings";
                         count: -1;
+                        icon: @image-url("../asset/icons/settings.svg");
+                        has-icon: true;
                         clicked => {
                             root.settings-open = true;
                         }
@@ -233,8 +235,10 @@ export component AppWindow inherits Window {
                         VerticalLayout {
                             alignment: center;
                             Chip {
-                                text: "+ Add URL";
+                                text: "Add URL";
                                 primary: true;
+                                icon: @image-url("../asset/icons/plus.svg");
+                                has-icon: true;
                                 clicked => {
                                     root.add-open = true;
                                 }
@@ -245,6 +249,8 @@ export component AppWindow inherits Window {
                             alignment: center;
                             Chip {
                                 text: "Resume all";
+                                icon: @image-url("../asset/icons/play.svg");
+                                has-icon: true;
                                 clicked => {
                                     root.resume-all();
                                 }
@@ -255,6 +261,8 @@ export component AppWindow inherits Window {
                             alignment: center;
                             Chip {
                                 text: "Pause all";
+                                icon: @image-url("../asset/icons/pause.svg");
+                                has-icon: true;
                                 clicked => {
                                     root.pause-all();
                                 }
@@ -278,8 +286,8 @@ export component AppWindow inherits Window {
 
                         VerticalLayout {
                             alignment: center;
-                            Chip {
-                                text: "☰";
+                            IconButton {
+                                icon: @image-url("../asset/icons/menu.svg");
                                 clicked => {
                                     main-menu.show();
                                 }
@@ -485,6 +493,8 @@ export component AppWindow inherits Window {
                                         Chip {
                                             text: item.active ? (item.paused ? "Resume" : "Pause") : "Open";
                                             primary: item.active;
+                                            icon: !item.active ? @image-url("../asset/icons/external.svg") : (item.paused ? @image-url("../asset/icons/play.svg") : @image-url("../asset/icons/pause.svg"));
+                                            has-icon: true;
                                             clicked => {
                                                 if (item.active) {
                                                     root.pause-download(item.id, item.paused);
@@ -499,6 +509,8 @@ export component AppWindow inherits Window {
                                         alignment: center;
                                         Chip {
                                             text: "Folder";
+                                            icon: @image-url("../asset/icons/folder.svg");
+                                            has-icon: true;
                                             clicked => {
                                                 root.show-folder(item.id);
                                             }
@@ -516,6 +528,10 @@ export component AppWindow inherits Window {
                     }
 
                     if root.downloads.length == 0 : Rectangle {
+                        x: 16px;
+                        y: 16px;
+                        width: parent.width - 32px;
+                        height: parent.height - 32px;
                         background: Theme.panel;
                         border-width: 1px;
                         border-color: Theme.border;
@@ -525,11 +541,13 @@ export component AppWindow inherits Window {
                             alignment: center;
                             spacing: 8px;
 
-                            Text {
-                                text: "⇣";
-                                color: Theme.text-dim;
-                                font-size: 34px;
-                                horizontal-alignment: center;
+                            HorizontalLayout {
+                                alignment: center;
+                                Icon {
+                                    source: @image-url("../asset/icons/download.svg");
+                                    size: 40px;
+                                    colorize: Theme.text-dim;
+                                }
                             }
 
                             Text {
@@ -540,7 +558,7 @@ export component AppWindow inherits Window {
                             }
 
                             Text {
-                                text: "Drop a link or a .torrent file here, or click + Add URL";
+                                text: "Drop a link or a .torrent file here, or click Add URL";
                                 color: Theme.text-dim;
                                 font-size: 12px;
                                 horizontal-alignment: center;
@@ -580,6 +598,8 @@ export component AppWindow inherits Window {
 
                             Chip {
                                 text: "Open";
+                                icon: @image-url("../asset/icons/external.svg");
+                                has-icon: true;
                                 enabled: root.downloads[root.selected-index].path != "" || root.downloads[root.selected-index].folder != "";
                                 clicked => {
                                     root.open-item(root.downloads[root.selected-index].id);
@@ -588,6 +608,8 @@ export component AppWindow inherits Window {
 
                             Chip {
                                 text: "Open folder";
+                                icon: @image-url("../asset/icons/folder.svg");
+                                has-icon: true;
                                 enabled: root.downloads[root.selected-index].folder != "";
                                 clicked => {
                                     root.show-folder(root.downloads[root.selected-index].id);
@@ -596,6 +618,8 @@ export component AppWindow inherits Window {
 
                             Chip {
                                 text: "Close";
+                                icon: @image-url("../asset/icons/close.svg");
+                                has-icon: true;
                                 clicked => {
                                     root.details-open = false;
                                 }
@@ -688,6 +712,8 @@ export component AppWindow inherits Window {
 
                         Chip {
                             text: "Support the project";
+                            icon: @image-url("../asset/icons/heart.svg");
+                            has-icon: true;
                             clicked => {
                                 root.support-project();
                             }

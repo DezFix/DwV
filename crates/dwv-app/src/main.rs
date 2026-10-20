@@ -19,9 +19,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fill_history(&all, db.as_ref());
     refilter(&ui);
 
+    let connections = db
+        .as_ref()
+        .and_then(|db| db.get_setting("connections").ok().flatten())
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(8)
+        .clamp(1, 32);
+    let speed_limit = db
+        .as_ref()
+        .and_then(|db| db.get_setting("speed_limit").ok().flatten())
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|&value| value > 0);
+    ui.set_connections(connections);
+    ui.set_speed_limit_kbps(speed_limit.map(|value| (value / 1024) as i32).unwrap_or(0));
+
     let runtime = tokio::runtime::Runtime::new()?;
     let _guard = runtime.enter();
-    let (queue, mut events) = Queue::start(QueueConfig::default(), db.clone());
+    let (queue, mut events) = Queue::start(
+        QueueConfig {
+            speed_limit,
+            ..QueueConfig::default()
+        },
+        db.clone(),
+    );
 
     let (ipc_tx, mut ipc_rx) = tokio::sync::mpsc::unbounded_channel();
     runtime.spawn(async move {
@@ -49,7 +69,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(ui) = ui_weak.upgrade() else { return };
                 let dir = PathBuf::from(ui.get_save_dir_text().as_str());
-                match spec_from_browser(&url, filename.as_deref(), referrer.as_deref(), &dir) {
+                let connections = ui.get_connections().clamp(1, 32) as usize;
+                match spec_from_browser(
+                    &url,
+                    filename.as_deref(),
+                    referrer.as_deref(),
+                    &dir,
+                    connections,
+                ) {
                     Ok(spec) => {
                         handle.spawn(async move {
                             let _ = queue.add(spec).await;
@@ -80,7 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         move |url| {
             let Some(ui) = ui_weak.upgrade() else { return };
             let dir = PathBuf::from(ui.get_save_dir_text().as_str());
-            match spec_from_url(url.as_str(), &dir) {
+            let connections = ui.get_connections().clamp(1, 32) as usize;
+            match spec_from_url(url.as_str(), &dir, connections) {
                 Ok(spec) => {
                     let queue = queue.clone();
                     handle.spawn(async move {
@@ -355,6 +383,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 ui.set_error_text("drop a URL or a .torrent file".into());
             }
+        }
+    });
+
+    ui.on_save_settings({
+        let ui_weak = ui.as_weak();
+        let db = db.clone();
+        let queue = queue.clone();
+        move || {
+            let Some(ui) = ui_weak.upgrade() else { return };
+            let connections = ui.get_connections().clamp(1, 32);
+            let kbps = ui.get_speed_limit_kbps().max(0);
+            ui.set_connections(connections);
+            ui.set_speed_limit_kbps(kbps);
+            if let Some(db) = db.as_ref() {
+                let _ = db.set_setting("connections", &connections.to_string());
+                let _ = db.set_setting("speed_limit", &(kbps as u64 * 1024).to_string());
+            }
+            queue.set_speed_limit((kbps > 0).then_some(kbps as u64 * 1024));
         }
     });
 
@@ -684,7 +730,7 @@ fn finish_item(
     model.set_row_data(i, item);
 }
 
-fn spec_from_url(url: &str, dir: &Path) -> Result<DownloadSpec, String> {
+fn spec_from_url(url: &str, dir: &Path, connections: usize) -> Result<DownloadSpec, String> {
     let url = url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("only http:// and https:// URLs are supported".to_string());
@@ -698,7 +744,7 @@ fn spec_from_url(url: &str, dir: &Path) -> Result<DownloadSpec, String> {
         raw_name
     });
     let mut spec = DownloadSpec::new(url, unique_path(&dir.join(&name)));
-    spec.connections = 8;
+    spec.connections = connections;
     Ok(spec)
 }
 
@@ -707,8 +753,9 @@ fn spec_from_browser(
     filename: Option<&str>,
     referrer: Option<&str>,
     dir: &Path,
+    connections: usize,
 ) -> Result<DownloadSpec, String> {
-    let mut spec = spec_from_url(url, dir)?;
+    let mut spec = spec_from_url(url, dir, connections)?;
     if let Some(name) = filename {
         spec.target = unique_path(&dir.join(sanitize(name)));
     }
@@ -814,20 +861,21 @@ mod tests {
         let spec = spec_from_url(
             "https://example.com/dir/file.zip?token=abc#frag",
             dir.path(),
+            8,
         )
         .unwrap();
         assert_eq!(spec.url, "https://example.com/dir/file.zip?token=abc#frag");
         assert_eq!(spec.target, dir.path().join("file.zip"));
         assert_eq!(spec.connections, 8);
 
-        assert!(spec_from_url("ftp://example.com/file.zip", dir.path()).is_err());
+        assert!(spec_from_url("ftp://example.com/file.zip", dir.path(), 8).is_err());
     }
 
     #[test]
     fn spec_avoids_overwriting_existing_files() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("file.zip"), b"x").unwrap();
-        let spec = spec_from_url("https://example.com/file.zip", dir.path()).unwrap();
+        let spec = spec_from_url("https://example.com/file.zip", dir.path(), 8).unwrap();
         assert_eq!(spec.target, dir.path().join("file (1).zip"));
     }
 
@@ -839,6 +887,7 @@ mod tests {
             Some("Video (1080p).mp4"),
             Some("https://example.com/watch"),
             dir.path(),
+            8,
         )
         .unwrap();
         assert_eq!(spec.target, dir.path().join("Video (1080p).mp4"));

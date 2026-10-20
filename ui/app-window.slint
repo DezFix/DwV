@@ -1,4 +1,4 @@
-import { Button, HorizontalBox, LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+import { Button, HorizontalBox, LineEdit, ListView, SpinBox, VerticalBox } from "std-widgets.slint";
 
 export struct DownloadItem {
     id: int,
@@ -24,6 +24,9 @@ export component AppWindow inherits Window {
     in-out property <int> filter: 0;
     in-out property <string> search-text;
     in-out property <string> status-text;
+    in-out property <bool> settings-open: false;
+    in-out property <int> connections: 8;
+    in-out property <int> speed-limit-kbps: 0;
 
     callback download-url(string);
     callback download-video(string);
@@ -33,6 +36,7 @@ export component AppWindow inherits Window {
     callback choose-folder();
     callback refilter();
     callback dropped(data-transfer);
+    callback save-settings();
 
     DropArea {
         can-drop(event) => {
@@ -111,6 +115,62 @@ export component AppWindow inherits Window {
                 text: "Browse…";
                 clicked => {
                     root.choose-folder();
+                }
+            }
+
+            Button {
+                text: "Settings";
+                clicked => {
+                    root.settings-open = !root.settings-open;
+                }
+            }
+        }
+
+        if root.settings-open : Rectangle {
+            border-width: 1px;
+            border-color: #c8ccd4;
+            border-radius: 8px;
+            background: #fafafb;
+
+            HorizontalBox {
+                padding: 8px;
+                spacing: 8px;
+                alignment: center;
+
+                Text {
+                    text: "Connections:";
+                    vertical-alignment: center;
+                }
+
+                SpinBox {
+                    minimum: 1;
+                    maximum: 32;
+                    value: root.connections;
+                    edited(value) => {
+                        root.connections = value;
+                    }
+                }
+
+                Text {
+                    text: "Speed limit (KB/s, 0 = unlimited):";
+                    vertical-alignment: center;
+                }
+
+                SpinBox {
+                    minimum: 0;
+                    maximum: 1048576;
+                    value: root.speed-limit-kbps;
+                    edited(value) => {
+                        root.speed-limit-kbps = value;
+                    }
+                }
+
+                Button {
+                    text: "Save";
+                    clicked => {
+                        root.save-settings();
+                        root.settings-open = false;
+                    }
                 }
             }
         }

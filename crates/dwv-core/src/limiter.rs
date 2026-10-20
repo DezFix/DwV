@@ -92,4 +92,13 @@ mod tests {
         // 128 KiB at 128 KiB/s takes about one second
         assert!(start.elapsed() >= Duration::from_millis(700));
     }
+
+    #[test]
+    fn set_limit_changes_limit_at_runtime() {
+        let limiter = SpeedLimiter::new(Some(1024));
+        limiter.set_limit(None);
+        assert_eq!(limiter.limit(), None);
+        limiter.set_limit(Some(2048));
+        assert_eq!(limiter.limit(), Some(2048));
+    }
 }

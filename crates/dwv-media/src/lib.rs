@@ -150,6 +150,8 @@ pub async fn download_video(
     let ytdlp = ensure_ytdlp().await?;
     let ffmpeg_dir = ensure_ffmpeg().await?;
     let mut child = Command::new(&ytdlp)
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
         .arg("--newline")
         .arg("--no-playlist")
         .arg("--windows-filenames")
@@ -178,14 +180,14 @@ pub async fn download_video(
     let stderr_task = tokio::spawn(collect_stderr(stderr));
 
     let mut last_path = None;
-    let mut lines = BufReader::new(stdout).lines();
-    while let Some(line) = lines.next_line().await? {
-        if let Some(progress) = parse_progress(&line) {
-            on_progress(progress);
+    let mut progress = |line: String| {
+        if let Some(update) = parse_progress(&line) {
+            on_progress(update);
         } else if let Some(path) = parse_destination(&line) {
             last_path = Some(path);
         }
-    }
+    };
+    for_each_line(BufReader::new(stdout), &mut progress).await?;
 
     let status = child.wait().await?;
     let stderr_lines = stderr_task.await.unwrap_or_default();
@@ -198,15 +200,30 @@ pub async fn download_video(
     Ok(last_path)
 }
 
+async fn for_each_line<R: tokio::io::AsyncRead + Unpin>(
+    mut reader: BufReader<R>,
+    on_line: &mut impl FnMut(String),
+) -> std::io::Result<()> {
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        if reader.read_until(b'\n', &mut buf).await? == 0 {
+            return Ok(());
+        }
+        let line = String::from_utf8_lossy(&buf);
+        on_line(line.trim_end_matches(['\r', '\n']).to_string());
+    }
+}
+
 async fn collect_stderr(stderr: tokio::process::ChildStderr) -> Vec<String> {
     let mut tail = Vec::new();
-    let mut lines = BufReader::new(stderr).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
+    let mut push = |line: String| {
         if tail.len() == 20 {
             tail.remove(0);
         }
         tail.push(line);
-    }
+    };
+    let _ = for_each_line(BufReader::new(stderr), &mut push).await;
     tail
 }
 
@@ -290,5 +307,15 @@ mod tests {
             Some(PathBuf::from("C:\\videos\\clip.mp4"))
         );
         assert_eq!(parse_destination("[download] 12.3% of 10MiB"), None);
+    }
+
+    #[tokio::test]
+    async fn decodes_invalid_utf8_lines_lossily() {
+        let mut lines = Vec::new();
+        let mut push = |line: String| lines.push(line);
+        for_each_line(BufReader::new(&b"a\xffb\nc\r\n"[..]), &mut push)
+            .await
+            .unwrap();
+        assert_eq!(lines, vec!["a\u{FFFD}b".to_string(), "c".to_string()]);
     }
 }

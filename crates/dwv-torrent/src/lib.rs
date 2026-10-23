@@ -361,11 +361,11 @@ async fn poll(
             let connections = live
                 .map(|l| l.snapshot.peer_stats.live as usize)
                 .unwrap_or(0);
-            let eta = if speed > 0 {
-                stats.total_bytes.saturating_sub(stats.progress_bytes) / speed
-            } else {
-                0
-            };
+            let eta = stats
+                .total_bytes
+                .saturating_sub(stats.progress_bytes)
+                .checked_div(speed)
+                .unwrap_or(0);
             on_event(TorrentEvent::Progress {
                 id,
                 downloaded: stats.progress_bytes,

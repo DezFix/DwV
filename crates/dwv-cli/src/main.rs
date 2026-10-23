@@ -295,6 +295,7 @@ async fn run_many(urls: Vec<String>, connections: usize, parallel: usize) -> Exi
             break;
         };
         match event {
+            QueueEvent::Queued { .. } => {}
             QueueEvent::Started {
                 id,
                 path,

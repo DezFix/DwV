@@ -1,0 +1,45 @@
+[package]
+name = "dwv"
+version = "0.1.1"
+description = "DwV Download Manager"
+authors = ["DwV Team"]
+license = "MIT"
+repository = "https://github.com/DwV/DwV"
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "dwv_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+dwv-core = { path = "../../crates/dwv-core" }
+dwv-media = { path = "../../crates/dwv-media" }
+dwv-ipc = { path = "../../crates/dwv-ipc" }
+dwv-torrent = { path = "../../crates/dwv-torrent" }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-global-shortcut = "2"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+dirs = "5"
+opener = "0.6"
+fs_extra = "1"
+url = "2"
+semver = "1"

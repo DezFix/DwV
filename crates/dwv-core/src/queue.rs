@@ -27,6 +27,10 @@ impl Default for QueueConfig {
 
 #[derive(Debug, Clone)]
 pub enum QueueEvent {
+    Queued {
+        id: u64,
+        path: PathBuf,
+    },
     Started {
         id: u64,
         path: PathBuf,
@@ -177,6 +181,8 @@ async fn supervisor(
                     next_id += 1;
                     // db failures must not block downloads
                     let db_row = db.as_ref().and_then(|db| db.insert(&spec).ok());
+                    let path = spec.target.clone();
+                    let _ = ev_tx.send(QueueEvent::Queued { id, path }).await;
                     pending.push_back((id, spec, db_row));
                     let _ = reply.send(id);
                 }
@@ -233,6 +239,8 @@ async fn supervisor(
                         if let (Some(db), Some(row)) = (db.as_ref(), row) {
                             let _ = db.set_state(row, State::Queued);
                         }
+                        let path = spec.target.clone();
+                        let _ = ev_tx.send(QueueEvent::Queued { id, path }).await;
                         pending.push_back((id, spec, row));
                     }
                 }

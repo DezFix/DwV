@@ -29,11 +29,26 @@ pub async fn start_server(
     advertise_ranges: bool,
     chunk_delay: Duration,
 ) -> TestServer {
+    start_server_with_failures(body, advertise_ranges, chunk_delay, 0).await
+}
+
+/// Refuses the first `failures` range requests (after the probe) with 503.
+pub async fn start_failing_server(body: Vec<u8>, failures: usize) -> TestServer {
+    start_server_with_failures(body, true, Duration::ZERO, failures).await
+}
+
+async fn start_server_with_failures(
+    body: Vec<u8>,
+    advertise_ranges: bool,
+    chunk_delay: Duration,
+    failures: usize,
+) -> TestServer {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let ranges_seen = Arc::new(Mutex::new(Vec::new()));
     let body = Arc::new(body);
     let seen = ranges_seen.clone();
+    let failures = Arc::new(Mutex::new(failures));
     tokio::spawn(async move {
         loop {
             let Ok((sock, _)) = listener.accept().await else {
@@ -41,8 +56,31 @@ pub async fn start_server(
             };
             let body = body.clone();
             let seen = seen.clone();
+            let failures = failures.clone();
             tokio::spawn(async move {
-                let _ = handle_conn(sock, body, advertise_ranges, chunk_delay, seen).await;
+                let _ =
+                    handle_conn(sock, body, advertise_ranges, chunk_delay, seen, failures).await;
+            });
+        }
+    });
+    TestServer { addr, ranges_seen }
+}
+
+/// Accepts connections and never answers, like a server that is up but stuck.
+pub async fn start_hanging_server() -> TestServer {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let ranges_seen = Arc::new(Mutex::new(Vec::new()));
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf).await;
+                // hold the socket open until the client gives up
+                let _ = sock.read(&mut [0u8; 1]).await;
             });
         }
     });
@@ -55,6 +93,7 @@ async fn handle_conn(
     advertise_ranges: bool,
     chunk_delay: Duration,
     seen: Arc<Mutex<Vec<Option<String>>>>,
+    failures: Arc<Mutex<usize>>,
 ) -> std::io::Result<()> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 2048];
@@ -81,6 +120,23 @@ async fn handle_conn(
         }
     }
     seen.lock().unwrap().push(range.clone());
+
+    let fail = range.as_deref().is_some_and(|r| r != "bytes=0-0") && {
+        let mut remaining = failures.lock().unwrap();
+        if *remaining > 0 {
+            *remaining -= 1;
+            true
+        } else {
+            false
+        }
+    };
+    if fail {
+        sock.write_all(
+            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )
+        .await?;
+        return Ok(());
+    }
 
     let len = body.len() as u64;
     let use_range = advertise_ranges && range.is_some();

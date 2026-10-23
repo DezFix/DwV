@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-default-members = ["crates/dwv-app"]
+default-members = ["crates/dwv-cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,7 +12,6 @@ authors = ["DezFix"]
 repository = "https://github.com/DezFix/DwV"
 
 [workspace.dependencies]
-slint = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time", "sync", "signal", "process"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
@@ -24,6 +23,9 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 rfd = "0.17"
 tokio-tungstenite = "0.30"
 librqbit = "9"
+open = "5"
+sha2 = "0.10"
+lazy_static = "1"
 
 [profile.release]
 lto = "thin"

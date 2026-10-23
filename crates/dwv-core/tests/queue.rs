@@ -44,6 +44,7 @@ async fn queue_limits_parallel_jobs() {
             QueueEvent::Failed { error, .. } => panic!("job failed: {error}"),
             QueueEvent::Cancelled { .. } => panic!("unexpected cancel"),
             QueueEvent::Paused { .. } => panic!("unexpected pause"),
+            QueueEvent::Queued { .. } => {}
             QueueEvent::Progress { .. } => {}
         }
     }
@@ -72,10 +73,12 @@ async fn cancel_pending_job_skips_it() {
     let id1 = queue.add(spec_for(&server, &target1, 1)).await.unwrap();
     let id2 = queue.add(spec_for(&server, &target2, 1)).await.unwrap();
 
+    let mut saw_queued_second = false;
     loop {
-        if let QueueEvent::Started { id, .. } = events.recv().await.unwrap() {
-            assert_eq!(id, id1);
-            break;
+        match events.recv().await.unwrap() {
+            QueueEvent::Started { id, .. } if id == id1 => break,
+            QueueEvent::Queued { id, .. } if id == id2 => saw_queued_second = true,
+            _ => {}
         }
     }
     queue.cancel(id2);
@@ -90,6 +93,10 @@ async fn cancel_pending_job_skips_it() {
             .expect("queue test timed out")
             .unwrap();
         match ev {
+            QueueEvent::Queued { id, .. } if id == id2 => {
+                assert!(!saw_cancelled, "queued must be reported before cancelled");
+                saw_queued_second = true;
+            }
             QueueEvent::Started { id, .. } if id == id2 => saw_started_second = true,
             QueueEvent::Cancelled { id } if id == id2 => saw_cancelled = true,
             QueueEvent::Finished { id, .. } if id == id1 => done_first = true,
@@ -97,6 +104,10 @@ async fn cancel_pending_job_skips_it() {
             _ => {}
         }
     }
+    assert!(
+        saw_queued_second,
+        "pending id2 must be reported as queued before it is cancelled"
+    );
     assert!(!saw_started_second, "cancelled job must not start");
     assert!(target1.exists());
     assert!(!target2.exists());

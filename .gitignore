@@ -1,2 +1,16 @@
 /target
 *.pdb
+
+# Tauri / Svelte UI
+ui/node_modules/
+ui/src-tauri/target/
+ui/src-tauri/gen/
+ui/src-tauri/frontend/
+ui/dist/
+
+# Local build/release artifacts
+release/
+extension/dist/
+ui/*.log
+ui/shot*.png
+ui/final.png

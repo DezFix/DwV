@@ -1,64 +1,123 @@
-# DwV
+<p align="center">
+  <img src="docs/screenshots/app-icon.png" width="96" alt="DwV">
+</p>
 
-Download manager written in Rust with file interception from the browser.
+<h1 align="center">DwV — Download Manager</h1>
 
-- Segmented downloads with resume (HTTP/HTTPS)
-- Chrome and Firefox extensions: download interception, context menu, media gallery for the current page
-- Video from any site via yt-dlp (updates itself on start)
-- BitTorrent via librqbit
-- Slint UI, tray icon, Windows installer
+<p align="center">Менеджер загрузок для Windows: файлы, видео и торренты в одном приложении.</p>
 
-Status: early development. The download engine (segments, queue, speed limit, SQLite history) and a basic GUI are in place; browser extensions, video and torrents are next.
+<p align="center">
+  <a href="https://github.com/DezFix/DwV/releases/latest">Скачать</a> ·
+  <a href="extension/INSTALL.md">Установить расширение</a> ·
+  <a href="https://ko-fi.com/dezfix">Поддержать на Ko-fi</a>
+</p>
 
-## Build
+![DwV: список загрузок и метаданные видео](docs/screenshots/app-main.png)
+
+## Возможности
+
+- HTTP/HTTPS-загрузки с докачкой, очередью и ограничением скорости.
+- Видео с сайтов через yt-dlp: YouTube и другие площадки, лучшее качество или 1080p/720p/480p.
+- Торренты через librqbit: magnet-ссылки, `.torrent`-файлы и URL, пиры, ограничение отдачи, DHT.
+- Все загрузки сохраняются в одну папку, которую вы выбираете в настройках.
+- Расширение для Firefox и LibreWolf: перехват файлов и видео, список видео на странице, просмотр и скачивание, автозапуск приложения.
+- Клик по загрузке открывает нижнюю панель: путь, размер, статус, ссылка, метаданные видео, пиры торрента.
+- Мультивыбор строк для массового удаления. Диалог удаления позволяет оставить файлы или удалить их с диска и запомнить выбор.
+- Улитка в статус-баре включает общий лимит скорости (по умолчанию 2 МБ/с).
+- Тёмная, светлая и системная тема, русский и английский язык, простые анимации.
+- Сворачивание и закрытие в трей, восстановление окна из расширения.
+- Ссылка Ko-fi в «О программе» и редкий баннер поддержки.
+
+## Скриншоты
+
+<p>
+  <img src="docs/screenshots/app-delete.png" width="49%" alt="DwV: массовое удаление">
+  <img src="docs/screenshots/app-settings.png" width="49%" alt="DwV: настройки загрузок">
+</p>
+
+<p>
+  <img src="store/screenshots/extension-videos.png" width="49%" alt="DwV: расширение, видео на странице">
+  <img src="store/screenshots/extension-settings.png" width="49%" alt="DwV: настройки расширения">
+</p>
+
+## Установка
+
+1. Скачайте `DwV-0.1.1-setup.exe` из [последнего релиза](https://github.com/DezFix/DwV/releases/latest) или запустите portable exe.
+2. Запустите DwV один раз. Приложение зарегистрирует протокол `dwv://` для автозапуска из расширения.
+3. Установите расширение `dwv-firefox-1.2.1.xpi` из релиза. Инструкция: [extension/INSTALL.md](extension/INSTALL.md).
+4. Откройте настройки и выберите папку загрузок.
+
+Windows 10/11. Для видео при первом запуске скачиваются yt-dlp и ffmpeg в `%APPDATA%\DwV\bin`.
+
+## Как пользоваться
+
+- Кнопка «Добавить» принимает ссылку на файл, ссылку на видео, magnet-ссылку или `.torrent`-файл. Ссылку можно вставить кнопкой «Вставить» при любой раскладке.
+- Перетащите `.torrent` или ссылку в окно приложения.
+- Клик по строке открывает детали. Вкладки зависят от типа: «Файл», «Видео» или «Пиры».
+- Квадратная плитка с типом файла (MP4, ZIP, PDF) работает как чекбокс для массового удаления.
+- Улитка рядом с ограничением скорости в статус-баре включает и выключает лимит.
+- В настройках → «Дополнительно» можно выбрать, что делать при удалении: спрашивать, убирать из приложения или удалять файлы.
+
+## Расширение
+
+Расширение работает с запущенным DwV через локальный адрес `127.0.0.1:41763`. Если приложение закрыто, расширение откроет его через `dwv://` и повторит отправку. Cookies не читаются и не передаются. Настройки хранятся локально в браузере.
+
+- Панель: включение плагина, перехват файлов и видео, список видео на странице, «Смотреть», «Скачать», «Открыть DwV».
+- Firefox/LibreWolf: установка из XPI. Обычный Firefox Release требует подписанное расширение; используйте LibreWolf, Developer/ESR или временную установку через `about:debugging`.
+- Chrome: `extension/chrome` можно загрузить распакованным.
+
+## Сборка
 
 ```powershell
-cargo build --release
+cd ui
+npm install
+npm run tauri build
 ```
 
-Application binary: `target/release/dwv.exe`
+Артефакты: `ui/src-tauri/target/release/dwv.exe` и установщики в `ui/src-tauri/target/release/bundle/`.
 
-## CLI (current download engine)
+Расширение:
 
 ```powershell
-cargo run -p dwv-cli -- https://example.com/file.zip -o file.zip -n 8
-cargo run -p dwv-cli -- <url1> <url2> <url3> -j 3
+node extension/build-xpi.mjs
 ```
 
-`-n` is connections per file, `-j` is parallel downloads in the queue. Ctrl+C stops the download; `.part` and `.dwvmeta` files are kept, and running the same command again resumes from where it stopped.
-
-Video via yt-dlp:
+Тесты:
 
 ```powershell
-cargo run -p dwv-cli -- video https://www.youtube.com/watch?v=... -d D:\Videos
+cargo test --workspace
+cargo test --manifest-path ui/src-tauri/Cargo.toml
+cd ui; npm run check; npm run build
 ```
 
-On first use DwV downloads `yt-dlp.exe` and a static ffmpeg build into `%APPDATA%\DwV\bin` (ffmpeg is needed to merge video and audio streams).
-
-Torrents (magnet link, `.torrent` url or local file):
-
-```powershell
-cargo run -p dwv-cli -- torrent "magnet:?xt=urn:btih:..." -d D:\Downloads
-```
-
-## Layout
+## Структура
 
 ```
 crates/
-  dwv-core/     download engine (HTTP segments, queue, resume, SQLite history)
-  dwv-media/    yt-dlp / ffmpeg
-  dwv-torrent/  librqbit
-  dwv-ipc/      native messaging for extensions + local WS API
-  dwv-app/      GUI (Slint)
-  dwv-cli/      headless build for tests and scripts
-ui/             Slint files
-extension/      Chrome/Firefox extensions
+  dwv-core/     HTTP-движок, очередь, докачка, SQLite-история
+  dwv-media/    yt-dlp, ffmpeg, ffprobe
+  dwv-torrent/  librqbit, одна торрент-сессия
+  dwv-ipc/      локальный HTTP/WebSocket IPC для расширения
+  dwv-cli/      консольная версия
+ui/             Tauri 2 + Svelte 5 интерфейс
+extension/      Firefox/LibreWolf и Chrome расширение
+docs/           контракт, скриншоты
+store/          материалы для магазина Firefox
 ```
 
-## License
+## Ограничения
 
-GPL-3.0-or-later, see [LICENSE](LICENSE)
+- Незавершённые торренты и видео не возобновляются после перезапуска приложения.
+- DHT и максимальное число пиров применяются к новой торрент-сессии; лимиты скорости работают сразу.
+- Расширение не подписано. Для постоянной установки нужен LibreWolf/Developer/ESR или подпись в магазине.
+- Настройки автозапуска, уведомлений, прокси, обрезки имён и авто-распаковки пока не влияют на загрузки.
+- Одинаковые имена файлов в одной папке могут конфликтовать.
 
-## Support
+## Лицензия
 
-https://ko-fi.com/dezfix
+GPL-3.0-or-later. См. [LICENSE](LICENSE).
+
+## Поддержка
+
+- Ko-fi: https://ko-fi.com/dezfix
+- Ошибки и идеи: https://github.com/DezFix/DwV/issues

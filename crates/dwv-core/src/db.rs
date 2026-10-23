@@ -42,6 +42,7 @@ pub enum State {
     Completed,
     Failed,
     Cancelled,
+    Interrupted,
 }
 
 impl State {
@@ -53,6 +54,7 @@ impl State {
             State::Completed => "completed",
             State::Failed => "failed",
             State::Cancelled => "cancelled",
+            State::Interrupted => "interrupted",
         }
     }
 
@@ -64,6 +66,7 @@ impl State {
             "completed" => Some(State::Completed),
             "failed" => Some(State::Failed),
             "cancelled" => Some(State::Cancelled),
+            "interrupted" => Some(State::Interrupted),
             _ => None,
         }
     }
@@ -112,18 +115,16 @@ impl Database {
 
     pub fn insert(&self, spec: &DownloadSpec) -> Result<i64, Error> {
         let now = now_secs();
-        let headers = serde_json::to_string(&spec.headers)?;
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO downloads (url, target, state, connections, headers_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+             VALUES (?1, ?2, ?3, ?4, '[]', ?5, ?5)",
             params![
-                spec.url,
+                redact_url(&spec.url),
                 // shortcut: non-UTF-8 path bytes are lost in history
                 spec.target.to_string_lossy(),
                 State::Queued.as_str(),
                 spec.connections as i64,
-                headers,
                 now,
             ],
         )?;
@@ -161,7 +162,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let now = now_secs();
         conn.execute(
-            "UPDATE downloads SET state = ?2, finished_at = ?3, updated_at = ?3 WHERE id = ?1",
+            "UPDATE downloads SET state = ?2, headers_json = '[]', finished_at = ?3, updated_at = ?3 WHERE id = ?1",
             params![id, state.as_str(), now],
         )?;
         Ok(())
@@ -173,6 +174,28 @@ impl Database {
         Ok(())
     }
 
+    /// Newest row for a target path; used to bind live queue entries to history.
+    pub fn latest_id_by_target(&self, target: &Path) -> Result<Option<i64>, Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT id FROM downloads WHERE target = ?1 ORDER BY id DESC LIMIT 1")?;
+        let mut rows = stmt.query(params![target.to_string_lossy()])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Removes leftover history rows for a file when their live binding is gone.
+    pub fn delete_by_target(&self, target: &Path) -> Result<(), Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM downloads WHERE target = ?1",
+            params![target.to_string_lossy()],
+        )?;
+        Ok(())
+    }
+
     pub fn load_pending(&self) -> Result<Vec<StoredDownload>, Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -180,6 +203,16 @@ impl Database {
         )?;
         let rows = stmt.query_map([], row_to_stored)?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn get(&self, id: i64) -> Result<Option<StoredDownload>, Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT * FROM downloads WHERE id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row_to_stored(row)?)),
+            None => Ok(None),
+        }
     }
 
     pub fn recent(&self, limit: usize) -> Result<Vec<StoredDownload>, Error> {
@@ -208,6 +241,22 @@ impl Database {
             None => Ok(None),
         }
     }
+}
+
+/// Strips query, fragment and userinfo so stored URLs carry no credentials.
+pub fn redact_url(url: &str) -> String {
+    let base = url.split(['?', '#']).next().unwrap_or("");
+    let Some((scheme, rest)) = base.split_once("://") else {
+        return base.to_string();
+    };
+    let (authority, path) = match rest.find('/') {
+        Some(i) => rest.split_at(i),
+        None => (rest, ""),
+    };
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    format!("{scheme}://{host}{path}")
 }
 
 fn row_to_stored(row: &Row<'_>) -> rusqlite::Result<StoredDownload> {

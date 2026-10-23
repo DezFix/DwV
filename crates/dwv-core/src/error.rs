@@ -4,8 +4,8 @@ pub enum Error {
     Http(#[from] reqwest::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("server returned status {0} for {1}")]
-    Status(u16, String),
+    #[error("server returned status {0}")]
+    Status(u16),
     #[error("invalid header: {0}")]
     BadHeader(String),
     #[error("connection closed before download completed")]

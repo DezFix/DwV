@@ -1,11 +1,49 @@
 {
   "manifest_version": 3,
   "name": "DwV",
-  "version": "0.1.0",
-  "description": "Send downloads to the DwV download manager",
-  "permissions": ["downloads", "contextMenus"],
+  "version": "1.2.1",
+  "description": "Перехват файлов, видео и торрентов для менеджера загрузок DwV",
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "96": "icon-96.png",
+    "128": "icon-128.png"
+  },
+  "permissions": [
+    "downloads",
+    "contextMenus",
+    "webRequest",
+    "webRequestBlocking",
+    "storage",
+    "tabs",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_title": "DwV",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   },
   "browser_specific_settings": {
     "gecko": {

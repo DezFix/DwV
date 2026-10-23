@@ -15,12 +15,15 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
+use crate::db::redact_url;
 use crate::error::Error;
 use crate::limiter::SpeedLimiter;
 
 const TICK: Duration = Duration::from_millis(250);
 const MAX_RETRIES: u32 = 5;
 const WRITE_SLICE: usize = 16 * 1024;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug)]
 pub struct DownloadSpec {
@@ -153,9 +156,33 @@ async fn run(
 ) -> Result<Outcome, Error> {
     let client = reqwest::Client::builder()
         .user_agent(concat!("DwV/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
         .build()?;
     let headers = build_headers(&spec.headers)?;
-    let info = probe(&client, &spec, &headers).await?;
+
+    let (stop_tx, stop_rx) = watch::channel(false);
+    {
+        let mut ext_cancel = cancel;
+        let bridge = stop_tx.clone();
+        tokio::spawn(async move {
+            loop {
+                if *ext_cancel.borrow() {
+                    let _ = bridge.send(true);
+                    return;
+                }
+                if ext_cancel.changed().await.is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
+    // a server that accepts the connection and never answers must not hang the job
+    let info = tokio::select! {
+        info = probe(&client, &spec, &headers) => info?,
+        _ = wait_stopped(stop_rx.clone()) => return Ok(Outcome::Cancelled),
+    };
     let connections = if info.segmented {
         spec.connections.max(1)
     } else {
@@ -174,7 +201,7 @@ async fn run(
     let resumed = match read_meta(&meta_path).await {
         Some(meta)
             if info.segmented
-                && meta.url == spec.url
+                && meta.url == redact_url(&spec.url)
                 && meta.etag == info.etag
                 && meta.last_modified == info.last_modified
                 && Some(meta.total) == info.total
@@ -199,13 +226,12 @@ async fn run(
             true,
         ),
         None => {
-            let file = OpenOptions::new()
+            OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(true)
                 .open(&part)
                 .await?;
-            file.set_len(info.total.unwrap_or(0)).await?;
             (
                 (0..connections)
                     .map(|_| Arc::new(AtomicU64::new(0)))
@@ -233,24 +259,9 @@ async fn run(
     }
 
     if segments.is_empty() {
-        finalize(&part, &spec.target, &tx).await;
+        finalize(&part, &spec.target, &tx).await?;
         return Ok(Outcome::Completed);
     }
-
-    let (stop_tx, stop_rx) = watch::channel(false);
-    let mut ext_cancel = cancel;
-    let bridge = stop_tx.clone();
-    tokio::spawn(async move {
-        loop {
-            if *ext_cancel.borrow() {
-                let _ = bridge.send(true);
-                return;
-            }
-            if ext_cancel.changed().await.is_err() {
-                return;
-            }
-        }
-    });
 
     let ctx = Arc::new(SegCtx {
         client: client.clone(),
@@ -288,7 +299,7 @@ async fn run(
     }
 
     let build_meta = || Meta {
-        url: spec.url.clone(),
+        url: redact_url(&spec.url),
         etag: info.etag.clone(),
         last_modified: info.last_modified.clone(),
         total: total.unwrap_or(0),
@@ -354,7 +365,7 @@ async fn run(
     match result {
         Ok(Outcome::Completed) => {
             send_final_progress(&tx, &done, total).await;
-            finalize(&part, &spec.target, &tx).await;
+            finalize(&part, &spec.target, &tx).await?;
             let _ = fs::remove_file(&meta_path).await;
             Ok(Outcome::Completed)
         }
@@ -389,16 +400,28 @@ async fn send_final_progress(
         .await;
 }
 
-async fn finalize(part: &Path, target: &Path, tx: &mpsc::Sender<Event>) {
+async fn finalize(part: &Path, target: &Path, tx: &mpsc::Sender<Event>) -> Result<(), Error> {
+    // a locked or read-only target must fail the job, not silently keep a .part
     if fs::metadata(target).await.is_ok() {
-        let _ = fs::remove_file(target).await;
+        fs::remove_file(target).await?;
     }
-    if fs::rename(part, target).await.is_ok() {
-        let _ = tx
-            .send(Event::Finished {
-                path: target.to_path_buf(),
-            })
-            .await;
+    fs::rename(part, target).await?;
+    let _ = tx
+        .send(Event::Finished {
+            path: target.to_path_buf(),
+        })
+        .await;
+    Ok(())
+}
+
+async fn wait_stopped(mut stop: watch::Receiver<bool>) {
+    loop {
+        if *stop.borrow() {
+            return;
+        }
+        if stop.changed().await.is_err() {
+            return;
+        }
     }
 }
 
@@ -415,7 +438,7 @@ async fn probe(
         .await?;
     let status = resp.status();
     if !status.is_success() {
-        return Err(Error::Status(status.as_u16(), spec.url.clone()));
+        return Err(Error::Status(status.as_u16()));
     }
     let etag = header_str(resp.headers(), ETAG);
     let last_modified = header_str(resp.headers(), LAST_MODIFIED);
@@ -482,13 +505,23 @@ async fn run_segment(
                 continue;
             }
         };
+        let status = resp.status();
         let status_ok = if ctx.ranged {
-            resp.status() == StatusCode::PARTIAL_CONTENT
+            status == StatusCode::PARTIAL_CONTENT
         } else {
-            resp.status().is_success()
+            status.is_success()
         };
         if !status_ok {
-            return Err(Error::Status(resp.status().as_u16(), ctx.url.clone()));
+            // rate limits and server hiccups are worth another try
+            if retryable_status(status) && attempt < MAX_RETRIES {
+                attempt += 1;
+                backoff(attempt, &mut stop).await?;
+                if !ctx.ranged {
+                    done.store(0, Ordering::Relaxed);
+                }
+                continue;
+            }
+            return Err(Error::Status(status.as_u16()));
         }
         match consume(resp, &mut file, &mut stop, &done, start, end, &ctx).await {
             Ok(false) => return Err(Error::Cancelled),
@@ -501,6 +534,10 @@ async fn run_segment(
                 };
                 if finished {
                     return Ok(());
+                }
+                if rel_now > rel {
+                    // the retry budget is per stall, not per whole download
+                    attempt = 0;
                 }
                 if attempt >= MAX_RETRIES {
                     return Err(Error::Truncated);
@@ -589,6 +626,12 @@ async fn backoff(attempt: u32, stop: &mut watch::Receiver<bool>) -> Result<(), E
 
 fn sum_done(done: &[Arc<AtomicU64>]) -> u64 {
     done.iter().map(|d| d.load(Ordering::Relaxed)).sum()
+}
+
+fn retryable_status(status: StatusCode) -> bool {
+    status == StatusCode::REQUEST_TIMEOUT
+        || status == StatusCode::TOO_MANY_REQUESTS
+        || status.is_server_error()
 }
 
 fn build_headers(pairs: &[(String, String)]) -> Result<HeaderMap, Error> {

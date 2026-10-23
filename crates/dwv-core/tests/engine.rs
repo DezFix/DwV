@@ -2,7 +2,9 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{spec_for, start_server, test_body, with_suffix};
+use common::{
+    spec_for, start_failing_server, start_hanging_server, start_server, test_body, with_suffix,
+};
 use dwv_core::{Download, Event, Outcome, SpeedLimiter};
 
 #[tokio::test]
@@ -87,7 +89,7 @@ async fn resume_after_cancel() {
     let meta_path = with_suffix(&target, ".dwvmeta");
     assert!(part.exists(), "part file must be kept for resume");
     assert!(meta_path.exists());
-    // part file is preallocated to full size, so progress lives in the metadata
+    // the part file is not preallocated, so progress lives in the metadata
     let meta: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&meta_path).unwrap()).unwrap();
     let done: u64 = meta["done"]
@@ -126,6 +128,62 @@ async fn resume_after_cancel() {
             .is_some_and(|start| start > 0)
     });
     assert!(resumed_from_offset, "no ranged request past offset 0");
+}
+
+#[tokio::test]
+async fn cancel_interrupts_a_stuck_probe() {
+    let server = start_hanging_server().await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("stuck.bin");
+
+    let dl = Download::start(spec_for(&server, &target, 2));
+    let controller = dl.controller();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    controller.cancel();
+
+    let outcome = tokio::time::timeout(Duration::from_secs(5), dl.join())
+        .await
+        .expect("a stuck server must not hang the download")
+        .unwrap();
+    assert_eq!(outcome, Outcome::Cancelled);
+}
+
+#[tokio::test]
+async fn retries_transient_server_errors() {
+    let body = test_body(11, 512 * 1024);
+    let server = start_failing_server(body.clone(), 2).await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("flaky.bin");
+
+    let mut dl = Download::start(spec_for(&server, &target, 2));
+    while dl.events().recv().await.is_some() {}
+    let outcome = dl.join().await.unwrap();
+    assert_eq!(outcome, Outcome::Completed);
+    assert_eq!(std::fs::read(&target).unwrap(), body);
+}
+
+#[tokio::test]
+async fn rename_failure_is_reported() {
+    let body = test_body(12, 64 * 1024);
+    let server = start_server(body, true, Duration::ZERO).await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("blocked.bin");
+    std::fs::create_dir(&target).unwrap();
+    std::fs::write(target.join("keep.txt"), b"x").unwrap();
+
+    let mut dl = Download::start(spec_for(&server, &target, 2));
+    let mut finished = false;
+    while let Some(event) = dl.events().recv().await {
+        if matches!(event, Event::Finished { .. }) {
+            finished = true;
+        }
+    }
+    assert!(
+        dl.join().await.is_err(),
+        "a blocked target must surface as an error"
+    );
+    assert!(!finished, "a blocked target must not report success");
+    assert!(with_suffix(&target, ".part").exists());
 }
 
 #[tokio::test]

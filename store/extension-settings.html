@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #171c25;
+    --bg-card: #1d232d;
+    --border: #303845;
+    --text: #e9edf3;
+    --muted: #8b95a4;
+    --accent: #4a9eff;
+    --accent-2: #2ee6c5;
+    --ok: #3fb950;
+    --shadow: 0 30px 80px rgba(0,0,0,.55);
+  }
+  html, body { margin: 0; width: 1280px; height: 800px; overflow: hidden; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(820px 520px at 88% 18%, rgba(74,158,255,.16), transparent 65%),
+      radial-gradient(700px 500px at 8% 85%, rgba(46,230,197,.12), transparent 65%),
+      linear-gradient(135deg, #0a0e14 0%, #0d1420 55%, #101a24 100%);
+    color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+    padding: 48px;
+  }
+  .stage { display: flex; align-items: center; gap: 76px; width: 100%; }
+  .popup {
+    width: 368px; flex-shrink: 0; background: #161b23;
+    border: 1px solid var(--border); border-radius: 18px;
+    box-shadow: var(--shadow); overflow: hidden; order: 2;
+  }
+  .popup header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 15px 16px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #1c232d, #171d26);
+  }
+  .popup header img { width: 26px; height: 26px; border-radius: 7px; display: block; }
+  .title { font-weight: 700; font-size: 14px; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px rgba(63,185,80,.15); }
+  section { padding: 13px 16px; border-bottom: 1px solid var(--border); }
+  section:last-child { border-bottom: none; }
+  .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 9px; }
+  .switch-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 5px 0; }
+  .switch-row .name { font-size: 12.5px; line-height: 1.3; }
+  .hint { font-size: 10.5px; color: var(--muted); margin-top: 3px; line-height: 1.35; }
+  .toggle { position: relative; width: 38px; height: 21px; flex-shrink: 0; margin-top: 2px; }
+  .toggle .track { position: absolute; inset: 0; border-radius: 11px; background: var(--accent); }
+  .toggle .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%; background: #fff; transform: translateX(17px); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .toggle.off .track { background: #394251; }
+  .toggle.off .track::after { transform: translateX(0); }
+  .capture { display: flex; flex-direction: column; gap: 7px; }
+  .capture .item { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: #1a2029; }
+  .capture .ico { width: 28px; height: 28px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  .ico.files { background: linear-gradient(135deg,#d29922,#bb8009); }
+  .ico.video { background: linear-gradient(135deg,#f0883e,#db6d28); }
+  .capture .name { font-size: 12px; font-weight: 600; }
+  .capture .sub { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .capture .ok { margin-left: auto; color: var(--ok); font-size: 14px; }
+  .site { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
+  .site .host { font-size: 12px; color: #d6dde7; }
+  .site .hint { margin: 0; }
+  .open-app { width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; background: linear-gradient(135deg,#4a9eff,#2ee6c5); color: #08111c; font-weight: 700; font-size: 12.5px; box-shadow: 0 8px 24px rgba(74,158,255,.25); }
+  .note { font-size: 10.5px; color: var(--muted); text-align: center; margin-top: 8px; }
+  .marketing { max-width: 520px; order: 1; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+  .brand img { width: 64px; height: 64px; border-radius: 16px; box-shadow: 0 10px 30px rgba(74,158,255,.25); }
+  h1 { margin: 0; font-size: 44px; line-height: 1.05; letter-spacing: -1.2px; }
+  h1 span { background: linear-gradient(90deg,#4a9eff,#2ee6c5); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tagline { margin: 17px 0 24px; font-size: 17px; line-height: 1.5; color: #aeb8c7; }
+  .bullets { display: flex; flex-direction: column; gap: 12px; }
+  .bullet { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; color: #d4dbe5; }
+  .check { width: 19px; height: 19px; border-radius: 6px; background: rgba(46,230,197,.12); color: var(--accent-2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; font-weight: 700; margin-top: 1px; }
+  .footer { margin-top: 28px; font-size: 11.5px; color: #6f7a89; letter-spacing: .2px; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="marketing">
+      <div class="brand">
+        <img src="../extension/firefox/icon-128.png" alt="">
+        <h1>DwV<br><span>Download Manager</span></h1>
+      </div>
+      <div class="tagline">Настройте перехват под себя: файлы, видео или всё сразу. Настройки хранятся локально.</div>
+      <div class="bullets">
+        <div class="bullet"><span class="check">✓</span><span>Один переключатель для всего плагина</span></div>
+        <div class="bullet"><span class="check">✓</span><span>Отдельно файлы и отдельно видео</span></div>
+        <div class="bullet"><span class="check">✓</span><span>Отключение для конкретного сайта</span></div>
+        <div class="bullet"><span class="check">✓</span><span>Ссылка на скачивание открывается в DwV</span></div>
+      </div>
+      <div class="footer">Firefox · LibreWolf · бесплатно · GPL-3.0 · Windows</div>
+    </div>
+
+    <div class="popup">
+      <header>
+        <img src="../extension/firefox/icon-128.png" alt="">
+        <span class="title">DwV</span>
+        <span class="status"><span class="dot"></span>DwV запущен</span>
+      </header>
+
+      <section>
+        <div class="switch-row">
+          <div>
+            <div class="name">Плагин включён</div>
+            <div class="hint">Главный переключатель</div>
+          </div>
+          <div class="toggle"><span class="track"></span></div>
+        </div>
+        <div class="switch-row">
+          <div>
+            <div class="name">Перехватывать файлы</div>
+            <div class="hint">Архивы, документы, программы</div>
+          </div>
+          <div class="toggle"><span class="track"></span></div>
+        </div>
+        <div class="switch-row">
+          <div>
+            <div class="name">Перехватывать видео</div>
+            <div class="hint">Потоки и видеофайлы на странице</div>
+          </div>
+          <div class="toggle"><span class="track"></span></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="label">Что перехватывается</div>
+        <div class="capture">
+          <div class="item">
+            <div class="ico files">ZIP</div>
+            <div>
+              <div class="name">Файлы и архивы</div>
+              <div class="sub">zip, exe, pdf, iso и другие</div>
+            </div>
+            <div class="ok">✓</div>
+          </div>
+          <div class="item">
+            <div class="ico video">MP4</div>
+            <div>
+              <div class="name">Видео и потоки</div>
+              <div class="sub">mp4, m3u8, webm, mkv</div>
+            </div>
+            <div class="ok">✓</div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="label">Текущий сайт</div>
+        <div class="site">
+          <div>
+            <div class="host">youtube.com</div>
+            <div class="hint">Плагин включён на этом сайте</div>
+          </div>
+          <div class="toggle"><span class="track"></span></div>
+        </div>
+      </section>
+
+      <section>
+        <button class="open-app">Открыть DwV</button>
+        <div class="note">Настройки не покидают браузер</div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

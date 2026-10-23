@@ -317,6 +317,7 @@
   .cat-document { background: linear-gradient(135deg, #3fb950, #2f9e42); }
   .cat-archive { background: linear-gradient(135deg, #d29922, #bb8009); }
   .cat-program { background: linear-gradient(135deg, #58a6ff, #388bfd); }
+  .cat-image { background: linear-gradient(135deg, #db61a2, #bf4b8f); }
   .cat-other { background: linear-gradient(135deg, #8b949e, #6e7681); }
 
   .body {

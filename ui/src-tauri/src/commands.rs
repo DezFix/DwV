@@ -1421,7 +1421,12 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                         headers,
                     };
                     if let Ok(id) = add_download_with_context(&ipc_state, context).await {
-                        emit_added_with_requested(&ipc_state, &state, id as i64, requested.as_deref());
+                        emit_added_with_requested(
+                            &ipc_state,
+                            &state,
+                            id as i64,
+                            requested.as_deref(),
+                        );
                     }
                 }
                 dwv_ipc::Request::Torrent { source, .. } => {
@@ -1469,10 +1474,7 @@ pub async fn add_torrent_inner(
     let name = dwv_torrent::torrent_name(&source);
     let target = dir.join(&name);
     if target.exists() {
-        return Err(format!(
-            "Файл или папка с именем «{}» уже существует",
-            name
-        ));
+        return Err(format!("Файл или папка с именем «{}» уже существует", name));
     }
     let paused = !settings.torrent_autostart;
 
@@ -1742,6 +1744,8 @@ pub fn category_of(filename: &str) -> Category {
         "mp4" | "mkv" | "webm" | "avi" | "mov" | "mpg" | "mpeg" | "flv" | "m4v" | "ts" => {
             Category::Video
         }
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "tif" | "tiff" | "heic"
+        | "avif" => Category::Image,
         _ => Category::Other,
     }
 }
@@ -1884,6 +1888,7 @@ pub enum Category {
     Document,
     Archive,
     Program,
+    Image,
     Other,
 }
 
@@ -2231,6 +2236,53 @@ pub fn register_protocol() {
             .args([
                 "add",
                 r"HKCU\Software\Classes\dwv\shell\open\command",
+                "/ve",
+                "/d",
+                &command,
+                "/f",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+
+        // Magnet links: register DwV as one of the Windows handlers.
+        let _ = std::process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Classes\magnet",
+                "/ve",
+                "/d",
+                "URL:magnet Protocol",
+                "/f",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+        let _ = std::process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Classes\magnet",
+                "/v",
+                "URL Protocol",
+                "/d",
+                "",
+                "/f",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+        let _ = std::process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Classes\magnet\DefaultIcon",
+                "/ve",
+                "/d",
+                &icon,
+                "/f",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+        let _ = std::process::Command::new("reg")
+            .args([
+                "add",
+                r"HKCU\Software\Classes\magnet\shell\open\command",
                 "/ve",
                 "/d",
                 &command,

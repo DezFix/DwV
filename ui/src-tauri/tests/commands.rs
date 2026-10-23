@@ -49,6 +49,8 @@ fn categorizes_by_extension() {
         category_of("setup.exe"),
         dwv_app::commands::Category::Program
     );
+    assert_eq!(category_of("photo.gif"), dwv_app::commands::Category::Image);
+    assert_eq!(category_of("photo.jpg"), dwv_app::commands::Category::Image);
     assert_eq!(category_of("blob.bin"), dwv_app::commands::Category::Other);
 }
 

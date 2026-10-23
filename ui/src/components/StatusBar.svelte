@@ -162,24 +162,28 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
     border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast);
+    box-shadow: inset 0 0 0 1px var(--bg-tertiary);
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
   }
 
   .snail-btn:hover {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+    border-color: var(--accent);
   }
 
   .snail-btn.active {
+    border-color: var(--accent);
     background: var(--accent-soft);
     color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
   }
 
   .snail-btn.active:hover {

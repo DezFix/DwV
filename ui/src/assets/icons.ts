@@ -3,6 +3,7 @@ import audioIcon from '../assets/icons/audio.svg?raw';
 import documentIcon from '../assets/icons/document.svg?raw';
 import archiveIcon from '../assets/icons/archive.svg?raw';
 import programIcon from '../assets/icons/program.svg?raw';
+import imageIcon from '../assets/icons/image.svg?raw';
 import otherIcon from '../assets/icons/other.svg?raw';
 import downloadIcon from '../assets/icons/download.svg?raw';
 import folderIcon from '../assets/icons/folder.svg?raw';
@@ -32,6 +33,7 @@ export const icons = {
   document: documentIcon,
   archive: archiveIcon,
   program: programIcon,
+  image: imageIcon,
   other: otherIcon,
   download: downloadIcon,
   folder: folderIcon,

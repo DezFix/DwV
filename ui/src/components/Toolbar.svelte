@@ -3,7 +3,6 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { tick } from 'svelte';
   import { t } from '../i18n/index.svelte.ts';
-  import { downloadsStore } from '../stores/downloads.svelte.ts';
   import { settingsStore } from '../stores/settings.svelte.ts';
   import Icon from './Icon.svelte';
 
@@ -185,17 +184,6 @@
 
     <span class="sep"></span>
 
-    <div class="bulk">
-      <button class="icon-btn" onclick={() => downloadsStore.pauseAll()} title={t('tray.pause_all')} aria-label={t('tray.pause_all')}>
-        <Icon name="pause" size={15} />
-      </button>
-      <button class="icon-btn" onclick={() => downloadsStore.resumeAll()} title={t('tray.resume_all')} aria-label={t('tray.resume_all')}>
-        <Icon name="play" size={15} />
-      </button>
-    </div>
-
-    <span class="sep"></span>
-
     <button class="icon-btn" onclick={onSettingsClick} title={t('actions.settings')} aria-label={t('actions.settings')}>
       <Icon name="settings" size={16} />
     </button>
@@ -361,14 +349,6 @@
     cursor: default;
   }
 
-  .bulk {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding-right: 6px;
-    margin-right: 3px;
-    border-right: 1px solid var(--border-color);
-  }
 
   .sep {
     width: 1px;

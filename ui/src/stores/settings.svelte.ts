@@ -43,6 +43,7 @@ const defaultCategories = (): CategorySettings[] => [
   { category: 'document', enabled: true, path: 'Documents', auto_extract: false },
   { category: 'archive', enabled: true, path: 'Archives', auto_extract: true },
   { category: 'program', enabled: true, path: 'Programs', auto_extract: false },
+  { category: 'image', enabled: true, path: 'Images', auto_extract: false },
   { category: 'other', enabled: true, path: 'Other', auto_extract: false },
 ];
 

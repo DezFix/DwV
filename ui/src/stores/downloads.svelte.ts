@@ -14,6 +14,7 @@ export type DownloadCategory =
   | 'document'
   | 'archive'
   | 'program'
+  | 'image'
   | 'other';
 
 export type DownloadKind = 'file' | 'video' | 'torrent';
@@ -157,6 +158,7 @@ class DownloadsStore {
       document: 0,
       archive: 0,
       program: 0,
+      image: 0,
       other: 0,
     } as Record<DownloadCategory, number>;
 

@@ -531,11 +531,7 @@
         <div class="row">
           <span class="label">{t('settings.updates')}</span>
           <div class="inline">
-            <button class="btn" onclick={async () => {
-              const { invoke } = await import('@tauri-apps/api/core');
-              const update = await invoke<{ available: boolean; version: string } | null>('check_updates');
-              alert(update?.available ? update.version : t('settings.check_updates'));
-            }}>
+            <button class="btn" onclick={() => window.dispatchEvent(new CustomEvent('dwv-check-updates'))}>
               <span>{t('settings.check_updates')}</span>
             </button>
           </div>
@@ -545,7 +541,7 @@
           <span class="label">{t('settings.about')}</span>
           <div class="about">
             <p><strong>DwV Download Manager</strong></p>
-            <p>0.1.3 · Rust + Tauri + Svelte 5</p>
+            <p>0.1.4 · Rust + Tauri + Svelte 5</p>
             <p>Copyright © DwV contributors · GPL-3.0-or-later</p>
           </div>
         </div>

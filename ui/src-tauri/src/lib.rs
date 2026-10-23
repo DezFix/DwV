@@ -9,7 +9,10 @@ mod tray;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
-    let initial_link = args.iter().find(|a| a.starts_with("dwv://")).cloned();
+    let initial_link = args
+        .iter()
+        .find(|a| a.starts_with("dwv://") || a.starts_with("magnet:"))
+        .cloned();
 
     crate::commands::register_protocol();
 
@@ -23,6 +26,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let data_dir = app_data_dir(app.handle());
             std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
@@ -47,17 +52,21 @@ pub fn run() {
             resume_pending(&app.state::<AppState>());
 
             if let Some(link) = initial_url {
-                let target = crate::commands::parse_deep_link(&link).unwrap_or_default();
-                let kind = crate::commands::deep_link_type(&link);
-                if !target.is_empty() {
-                    let state = link_state.clone();
-                    let handle = app_handle.clone();
-                    let rt = state.handle.clone();
-                    rt.spawn(async move {
-                        let _ =
-                            crate::commands::add_link(&state, &handle, &target, kind.as_deref())
-                                .await;
-                    });
+                if let Some((target, kind)) = launch_target(&link) {
+                    if !target.is_empty() {
+                        let state = link_state.clone();
+                        let handle = app_handle.clone();
+                        let rt = state.handle.clone();
+                        rt.spawn(async move {
+                            let _ = crate::commands::add_link(
+                                &state,
+                                &handle,
+                                &target,
+                                kind.as_deref(),
+                            )
+                            .await;
+                        });
+                    }
                 }
             }
 
@@ -136,6 +145,15 @@ pub fn run() {
         });
 }
 
+fn launch_target(link: &str) -> Option<(String, Option<String>)> {
+    if link.starts_with("magnet:") {
+        return Some((link.to_string(), Some("torrent".to_string())));
+    }
+    let target = crate::commands::parse_deep_link(link)?;
+    let kind = crate::commands::deep_link_type(link);
+    Some((target, kind))
+}
+
 fn try_forward(link: Option<&str>) -> bool {
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -150,22 +168,28 @@ fn try_forward(link: Option<&str>) -> bool {
         Err(_) => return false,
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    let body = match link.and_then(crate::commands::parse_deep_link) {
-        Some(target) if !target.is_empty() => {
-            let kind = link
-                .and_then(crate::commands::deep_link_type)
-                .unwrap_or_default();
-            if kind == "video" {
-                serde_json::json!({"type":"video","url":target})
-            } else if kind == "torrent"
-                || (kind != "file" && crate::commands::is_torrent_source(&target))
-            {
-                serde_json::json!({"type":"torrent","source":target})
-            } else {
-                serde_json::json!({"type":"add","url":target})
+    let body = if let Some(link) = link {
+        if link.starts_with("magnet:") {
+            serde_json::json!({"type":"torrent","source":link})
+        } else {
+            match launch_target(link) {
+                Some((target, kind)) if !target.is_empty() => {
+                    let kind = kind.unwrap_or_default();
+                    if kind == "video" {
+                        serde_json::json!({"type":"video","url":target})
+                    } else if kind == "torrent"
+                        || (kind != "file" && crate::commands::is_torrent_source(&target))
+                    {
+                        serde_json::json!({"type":"torrent","source":target})
+                    } else {
+                        serde_json::json!({"type":"add","url":target})
+                    }
+                }
+                _ => serde_json::json!({"type":"ping"}),
             }
         }
-        _ => serde_json::json!({"type":"ping"}),
+    } else {
+        serde_json::json!({"type":"ping"})
     };
     let body = body.to_string();
     let req = format!(

@@ -31,20 +31,13 @@
     { id: 'error' as View, label: 'filter.error', count: downloadsStore.errored.length, icon: 'close' as IconName },
   ]);
 
-  const sources = $derived([
-    { id: 'torrent' as View, label: 'sidebar.torrents', count: downloadsStore.torrentCount, icon: 'archive' as IconName },
-    { id: 'video' as View, label: 'sidebar.videos', count: downloadsStore.videoCount, icon: 'video' as IconName },
-  ]);
-
   const categories = $derived(
-    (Object.keys(downloadsStore.categoryCounts) as DownloadCategory[])
-      .filter(cat => downloadsStore.categoryCounts[cat] > 0)
-      .map(cat => ({
-        id: cat,
-        label: `type.${cat}`,
-        count: downloadsStore.categoryCounts[cat],
-        icon: cat as IconName,
-      })),
+    (Object.keys(downloadsStore.categoryCounts) as DownloadCategory[]).map(cat => ({
+      id: cat,
+      label: `type.${cat}`,
+      count: downloadsStore.categoryCounts[cat],
+      icon: cat as IconName,
+    })),
   );
 </script>
 
@@ -67,38 +60,32 @@
     </div>
 
     <div class="nav-section">
-      <div class="nav-title">{t('sidebar.source')}</div>
-      {#each sources as source (source.id)}
+      <div class="nav-title">{t('sidebar.type')}</div>
+      {#each categories as cat (cat.id)}
         <button
           class="nav-item"
-          class:active={view === source.id && category === null}
-          onclick={() => onNavigate(source.id, null)}
+          class:active={category === cat.id}
+          onclick={() => onNavigate('all', cat.id)}
         >
-          <span class="nav-icon"><Icon name={source.icon} size={16} /></span>
-          <span class="nav-label">{t(source.label)}</span>
-          <span class="nav-count">{source.count}</span>
+          <span class="nav-icon"><Icon name={cat.icon} size={16} /></span>
+          <span class="nav-label">{t(cat.label)}</span>
+          {#if cat.count > 0}
+            <span class="nav-count">{cat.count}</span>
+          {/if}
         </button>
       {/each}
+      <button
+        class="nav-item"
+        class:active={view === 'torrent' && category === null}
+        onclick={() => onNavigate('torrent', null)}
+      >
+        <span class="nav-icon"><Icon name="archive" size={16} /></span>
+        <span class="nav-label">{t('sidebar.torrents')}</span>
+        {#if downloadsStore.torrentCount > 0}
+          <span class="nav-count">{downloadsStore.torrentCount}</span>
+        {/if}
+      </button>
     </div>
-
-    {#if categories.length > 0}
-      <div class="nav-section">
-        <div class="nav-title">{t('sidebar.type')}</div>
-        {#each categories as cat (cat.id)}
-          <button
-            class="nav-item"
-            class:active={category === cat.id}
-            onclick={() => onNavigate('all', cat.id)}
-          >
-            <span class="nav-icon"><Icon name={cat.icon} size={16} /></span>
-            <span class="nav-label">{t(cat.label)}</span>
-            {#if cat.count > 0}
-              <span class="nav-count">{cat.count}</span>
-            {/if}
-          </button>
-        {/each}
-      </div>
-    {/if}
   </nav>
 </aside>
 

@@ -5,6 +5,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open } from '@tauri-apps/plugin-dialog';
+  import { check, type Update } from '@tauri-apps/plugin-updater';
   import DownloadList from './components/DownloadList.svelte';
   import Sidebar, { type View } from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -13,6 +14,7 @@
   import DetailsPanel from './components/DetailsPanel.svelte';
   import ConfirmDeleteDialog from './components/ConfirmDeleteDialog.svelte';
   import DuplicateDialog from './components/DuplicateDialog.svelte';
+  import UpdateDialog from './components/UpdateDialog.svelte';
   import KofiBanner from './components/KofiBanner.svelte';
   import Icon from './components/Icon.svelte';
 
@@ -47,6 +49,10 @@
   let duplicate = $state<DownloadPreview | null>(null);
   let duplicateUrl = $state<string | null>(null);
   let showKofi = $state(false);
+  let updateInfo = $state<{ version: string; notes?: string } | null>(null);
+  let updateBusy = $state(false);
+  let updateError = $state<string | null>(null);
+  let pendingUpdate: Update | null = null;
   let toastMessage = $state<string | null>(null);
   let toastTimer: number | undefined;
 
@@ -188,6 +194,50 @@
     }
   }
 
+  async function checkForUpdates(manual: boolean) {
+    try {
+      const update = await check();
+      if (!update) {
+        if (manual) showToast(t('update.none'));
+        return;
+      }
+      let skipped: string | null = null;
+      try {
+        skipped = window.localStorage.getItem('dwv.skipped_update');
+      } catch {}
+      if (!manual && skipped === update.version) return;
+      pendingUpdate = update;
+      updateInfo = { version: update.version, notes: update.body ?? '' };
+      updateError = null;
+    } catch (error) {
+      if (manual) showToast(`${t('update.check_failed')}: ${String(error)}`);
+    }
+  }
+
+  async function installUpdate() {
+    if (!pendingUpdate) return;
+    updateBusy = true;
+    updateError = null;
+    try {
+      await pendingUpdate.downloadAndInstall();
+    } catch (error) {
+      updateError = String(error);
+      updateBusy = false;
+    }
+  }
+
+  function skipUpdate() {
+    if (updateInfo) {
+      try {
+        window.localStorage.setItem('dwv.skipped_update', updateInfo.version);
+      } catch {}
+    }
+    updateInfo = null;
+    pendingUpdate = null;
+    updateBusy = false;
+    updateError = null;
+  }
+
   function isTorrentSource(value: string): boolean {
     const lower = value.trim().toLowerCase();
     return lower.startsWith('magnet:') || /\.torrent(?:[?#]|$)/.test(lower);
@@ -326,6 +376,8 @@
 
   onMount(() => {
     initKofi();
+    const checkUpdates = () => void checkForUpdates(true);
+    window.addEventListener('dwv-check-updates', checkUpdates);
     const unlisteners: UnlistenFn[] = [];
     const appWindow = getCurrentWindow();
 
@@ -362,9 +414,12 @@
           }
         }),
       );
+
+      void checkForUpdates(false);
     })();
 
     return () => {
+      window.removeEventListener('dwv-check-updates', checkUpdates);
       unlisteners.forEach(unlisten => unlisten());
       if (toastTimer) window.clearTimeout(toastTimer);
     };
@@ -486,6 +541,16 @@
     suggested={duplicate?.suggested ?? ''}
     onCancel={cancelDuplicate}
     onRename={renameDuplicate}
+  />
+
+  <UpdateDialog
+    open={updateInfo !== null}
+    version={updateInfo?.version ?? ''}
+    notes={updateInfo?.notes}
+    busy={updateBusy}
+    error={updateError}
+    onUpdate={installUpdate}
+    onSkip={skipUpdate}
   />
 
   {#if toastMessage}

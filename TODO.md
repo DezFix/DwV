@@ -1,10 +1,10 @@
-# DwV — TODO 0.1.3
+# DwV — TODO 0.1.6
 
 Сборка: `release/`. Проверки: `cargo test --workspace`, `cargo test --manifest-path ui/src-tauri/Cargo.toml`, `npm run check`, `npm run build`, `npm run tauri build`, тесты расширения, XPI в LibreWolf.
 
 ## Сделано
 
-### 0.1.5
+### 0.1.6
 - [x] Регистрация dwv:// и magnet: в NSIS-установщике, автозапуск Windows в установщике
 - [x] yt-dlp обновляет себя не чаще раза в сутки через -U
 - [x] Автозапуск вместе с Windows, включён по умолчанию, отключается в настройках

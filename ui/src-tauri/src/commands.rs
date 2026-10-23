@@ -377,6 +377,7 @@ pub async fn add_download_with_context(
     let filename = unique_download_name(&dir, &filename);
     let target = dir.join(&filename);
     let mut spec = DownloadSpec::new(fetch_url, target.clone());
+    spec.connections = 1;
     spec.headers = headers;
 
     let id = state.queue.add(spec).await.map_err(|e| e.to_string())?;
@@ -1799,6 +1800,7 @@ pub async fn resolve_filename(url: &str) -> String {
 
 async fn resolve_filename_with_headers(url: &str, headers: &[(String, String)]) -> String {
     if let Ok(client) = reqwest::Client::builder()
+        .http1_only()
         .timeout(std::time::Duration::from_secs(8))
         .build()
     {
@@ -2144,7 +2146,8 @@ pub fn resume_pending(state: &AppState) {
     let db = state.db.clone();
     state.handle.spawn(async move {
         for item in resumable {
-            let spec = item.to_spec();
+            let mut spec = item.to_spec();
+            spec.connections = 1;
             let path = spec.target.clone();
             let filename = file_name_of(&path);
             let category = category_of(&filename);

@@ -157,6 +157,7 @@ async fn run(
 ) -> Result<Outcome, Error> {
     let client = reqwest::Client::builder()
         .user_agent(concat!("DwV/", env!("CARGO_PKG_VERSION")))
+        .http1_only()
         .connect_timeout(CONNECT_TIMEOUT)
         .read_timeout(READ_TIMEOUT)
         .build()?;

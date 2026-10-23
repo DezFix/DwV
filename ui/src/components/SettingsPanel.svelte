@@ -552,7 +552,7 @@
           <span class="label">{t('settings.about')}</span>
           <div class="about">
             <p><strong>DwV Download Manager</strong></p>
-            <p>0.1.5 · Rust + Tauri + Svelte 5</p>
+            <p>0.1.6 · Rust + Tauri + Svelte 5</p>
             <p>Copyright © DwV contributors · GPL-3.0-or-later</p>
           </div>
         </div>

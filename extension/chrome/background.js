@@ -240,6 +240,15 @@ function mediaKind(url, mime) {
   if (STREAM_EXTENSIONS.test(url)) return "stream";
   if (/mpegurl|dash\+xml|(?:^|\/)mpd$/i.test(mime)) return "stream";
   if (MEDIA_EXTENSIONS.test(url) || MEDIA_MIME.test(mime)) return "file";
+  try {
+    const parsed = new URL(url);
+    const mimeParam = (parsed.searchParams.get("mime") || "").toLowerCase();
+    if (mimeParam.startsWith("video/")) return "file";
+    if (mimeParam.includes("mpegurl") || mimeParam.includes("mpd")) return "stream";
+    if (/(^|\.)googlevideo\.com$/i.test(parsed.hostname) && mime.startsWith("video/")) {
+      return "file";
+    }
+  } catch {}
   return "";
 }
 
@@ -522,6 +531,11 @@ async function onCreatedFirefox(item) {
 }
 
 async function onMenuClicked(info) {
+  if (info.menuItemId === "dwv-video-page") {
+    if (!settings.enabled || !isHttp(info.pageUrl)) return;
+    await handOff({ type: "video", url: info.pageUrl });
+    return;
+  }
   if (info.menuItemId !== "dwv-download") return;
   if (!settings.enabled) return;
   const url = info.linkUrl || info.srcUrl;
@@ -545,6 +559,11 @@ api.runtime.onInstalled.addListener(() => {
       id: "dwv-download",
       title: "Download with DwV",
       contexts: ["link", "image"],
+    });
+    api.contextMenus.create({
+      id: "dwv-video-page",
+      title: "Скачать видео со страницы",
+      contexts: ["page"],
     });
   } catch {}
 });

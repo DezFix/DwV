@@ -204,6 +204,8 @@
 
     .notice.bad { color: var(--bad); }
     .notice.good { color: var(--ok); }
+
+    .page-btn { width: 100%; }
   </style>
 </head>
 <body>
@@ -254,6 +256,12 @@
     <div class="videos" id="videos">
       <div class="empty">Сканирую страницу…</div>
     </div>
+  </section>
+
+  <section>
+    <button id="page-video" class="primary page-btn" type="button">Скачать видео со страницы</button>
+    <div class="hint">Если видео не найдено в списке, DwV скачает его по ссылке страницы.</div>
+    <div class="notice" id="page-notice" role="status" aria-live="polite"></div>
   </section>
 
   <section>

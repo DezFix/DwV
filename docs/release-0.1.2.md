@@ -8,7 +8,6 @@
 - `DwV-0.1.2-portable.exe` — портативная версия.
 - `DwV-0.1.2-x64.msi` — MSI.
 - `dwv-firefox-1.2.2.xpi` — расширение для Firefox/LibreWolf.
-- `dwv-firefox-store-kit.zip` — описание и скриншоты для магазина Firefox.
 
 Запустите DwV один раз, чтобы зарегистрировался `dwv://`. Инструкция по расширению: `extension/INSTALL.md`.
 

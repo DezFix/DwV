@@ -8,6 +8,8 @@ const captureVideo = document.getElementById("capture-video");
 const videosBox = document.getElementById("videos");
 const refreshButton = document.getElementById("refresh");
 const openApp = document.getElementById("open-app");
+const pageVideo = document.getElementById("page-video");
+const pageNotice = document.getElementById("page-notice");
 const notice = document.getElementById("notice");
 
 const APP_URL = "http://127.0.0.1:41763/";
@@ -210,26 +212,31 @@ function renderVideos(videos, tabId) {
   }
 }
 
-async function downloadVideo(video, button, status) {
+async function sendVideoUrl(url, button, status) {
+  const label = button.textContent;
   button.disabled = true;
-  button.textContent = "Отправляю…";
+  button.textContent = "Отправка...";
   status.textContent = "";
   let reply;
   try {
     reply = await api.runtime.sendMessage({
       type: "handoff",
-      message: { type: "video", url: video.url },
+      message: { type: "video", url },
     });
   } catch (error) {
-    reply = { ok: false, error: error?.message || "нет связи с расширением" };
+    reply = { ok: false, error: error?.message || "Не удалось отправить в DwV" };
   }
   if (reply?.ok) {
-    button.textContent = "Добавлено";
+    button.textContent = "Отправлено";
     return;
   }
   button.disabled = false;
-  button.textContent = "Скачать";
-  status.textContent = "Не удалось: " + (reply?.error || "DwV недоступен");
+  button.textContent = label;
+  status.textContent = "Не получилось: " + (reply?.error || "DwV не ответил");
+}
+
+function downloadVideo(video, button, status) {
+  return sendVideoUrl(video.url, button, status);
 }
 
 async function watchOnPage(tabId, button, status) {
@@ -247,6 +254,20 @@ async function watchOnPage(tabId, button, status) {
   }
   button.disabled = false;
 }
+
+function setPageNotice(text, tone) {
+  pageNotice.textContent = text || "";
+  pageNotice.className = "notice" + (tone ? ` ${tone}` : "");
+}
+
+pageVideo.addEventListener("click", async () => {
+  const tab = await activeTab();
+  if (!tab?.url || !/^https?:/i.test(tab.url)) {
+    setPageNotice("Откройте обычную страницу сайта", "bad");
+    return;
+  }
+  await sendVideoUrl(tab.url, pageVideo, pageNotice);
+});
 
 enabled.addEventListener("change", async () => {
   await saveSetting("enabled", enabled.checked);

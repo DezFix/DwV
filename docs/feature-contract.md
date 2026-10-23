@@ -1,4 +1,4 @@
-# DwV UI / backend contract (release 0.1.2)
+# DwV UI / backend contract (release 0.1.3)
 
 Фиксирует имена команд, события и поля, на которые опирается UI. Менять только вместе с обеими сторонами.
 
@@ -211,3 +211,10 @@ torrent_dht_enabled: boolean;        // default true
 - `probe` отклоняет ответ `text/html`, если целевой файл не HTML (защита от страниц авторизации вместо файла).
 - Расширение: `cookies` permission, передача cookies/Referer/final_url, запуск через `dwv://` без дублирующего добавления.
 - Торренты с существующим именем не запускаются; yt-dlp вызывается с `--no-overwrites`.
+## Изменения 0.1.3
+
+- Extension context menu item `dwv-video-page`: right-click on a page sends `{type:"video",url:pageUrl}`.
+- Popup button "Скачать видео со страницы" sends the active tab URL to the video pipeline.
+- `mediaKind` accepts YouTube `googlevideo` URLs with a `mime=video/...` query parameter even without a file extension.
+- Error details show "Открыть страницу" (command `open_url`) and a captcha/login hint. The app does not render the captcha itself; the user completes it in the browser and retries from the extension.
+- Store kit for Firefox is local only and is not uploaded to GitHub releases.

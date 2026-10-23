@@ -78,6 +78,15 @@
     }
   }
 
+  async function openUrl(url: string) {
+    actionError = null;
+    try {
+      await invoke('open_url', { url });
+    } catch (error) {
+      actionError = `${t('details.action_failed')}: ${String(error)}`;
+    }
+  }
+
   function formatSize(bytes: number | undefined | null): string {
     if (bytes == null) return '—';
     if (bytes <= 0) return '0 B';
@@ -238,7 +247,17 @@
       </dl>
 
       {#if details.error}
+        {@const errorUrl = details.url}
         <p class="state error">{details.error}</p>
+        {#if errorUrl.startsWith('http://') || errorUrl.startsWith('https://')}
+          <div class="actions">
+            <button class="btn" onclick={() => openUrl(errorUrl)}>
+              <Icon name="external" size={14} />
+              <span>{t('actions.open_page')}</span>
+            </button>
+          </div>
+          <p class="hint">{t('details.captcha_hint')}</p>
+        {/if}
       {/if}
 
       {#if details.status === 'completed' && details.file_path}
@@ -543,6 +562,13 @@
     text-align: center;
     color: var(--text-muted);
     font-size: 12.5px;
+  }
+
+  .hint {
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
   }
 
   .state.error {

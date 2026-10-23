@@ -220,8 +220,8 @@ function assertFetchShape(state) {
 assert(source === firefoxSource, "chrome and firefox background scripts must be identical");
 assert(contentSource === chromeContentSource, "chrome and firefox content scripts must be identical");
 assert(popupSource === chromePopupSource, "chrome and firefox popup scripts must be identical");
-assert(firefoxManifest.version === "1.2.2", "firefox manifest version");
-assert(chromeManifest.version === "1.2.2", "chrome manifest version");
+assert(firefoxManifest.version === "1.2.3", "firefox manifest version");
+assert(chromeManifest.version === "1.2.3", "chrome manifest version");
 assert(
   /sendResponse\(\{\s*videos:\s*collectVideos\(\)\s*\}\)/.test(contentSource),
   "content scan-videos responds with {videos}",
@@ -235,7 +235,7 @@ assert(
   "popup hands requests off through the background",
 );
 assert(
-  popupSource.includes('message: { type: "video", url: video.url }'),
+  popupSource.includes('message: { type: "video", url }'),
   "popup sends page videos through the video pipeline",
 );
 assert(!popupSource.includes("window.open"), "popup does not launch the protocol itself");
@@ -381,6 +381,19 @@ console.log("ok: chrome fail-open on every transport failure");
   assert(message.source === magnet, "magnet source");
   assert(!state.commands.some(([name]) => name === "cancel"), "context menu has nothing to cancel");
   console.log("ok: context menu magnet");
+}
+
+{
+  const state = load("chrome");
+  state.listeners.installed();
+  await state.listeners.menuClicked({
+    menuItemId: "dwv-video-page",
+    pageUrl: "https://www.youtube.com/watch?v=abc",
+  });
+  const message = state.requests.find((request) => request.type === "video");
+  assert(message, "page video must be sent as a video");
+  assert(message.url === "https://www.youtube.com/watch?v=abc", "page video url");
+  console.log("ok: context menu page video");
 }
 
 {
@@ -621,6 +634,14 @@ console.log("ok: chrome fail-open on every transport failure");
     statusCode: 200,
     responseHeaders: [{ name: "Content-Type", value: "video/mp2t" }],
   });
+  dispatchHeaders(state, {
+    url: "https://rr1---sn.googlevideo.com/videoplayback?mime=video%2Fmp4&id=abc",
+    method: "GET",
+    type: "media",
+    tabId: 5,
+    statusCode: 206,
+    responseHeaders: [{ name: "Content-Type", value: "application/octet-stream" }],
+  });
 
   sendRuntime(state, {
     type: "videos",
@@ -648,7 +669,7 @@ console.log("ok: chrome fail-open on every transport failure");
 
   const reply = await sendRuntime(state, { type: "videos-for-tab", tabId: 5 });
   assert(Array.isArray(reply.videos), "videos-for-tab returns {videos}");
-  assert(reply.videos.length === 3, `merged videos: ${reply.videos.length}`);
+  assert(reply.videos.length === 4, `merged videos: ${reply.videos.length}`);
   const hls = reply.videos.find((video) => video.url.endsWith("index.m3u8"));
   assert(hls && hls.title === "Поток", "content metadata wins for duplicate urls");
   assert(hls.size === 1234, "network size fills the content entry");
@@ -656,6 +677,7 @@ console.log("ok: chrome fail-open on every transport failure");
   const clip = reply.videos.find((video) => video.url.endsWith("clip.mp4"));
   assert(clip && clip.source === "network", "network media is listed");
   assert(!reply.videos.some((video) => video.url.endsWith("segment.ts")), "media segments are ignored");
+  assert(reply.videos.some((video) => video.url.includes("googlevideo.com")), "YouTube mime query is detected");
 
   state.listeners.tabRemoved(5);
   const cleared = await sendRuntime(state, { type: "videos-for-tab", tabId: 5 });

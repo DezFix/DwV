@@ -202,6 +202,17 @@
           />
           <p class="hint">{t('settings.notifications_hint')}</p>
         </div>
+
+        <div class="row">
+          <span class="label">{t('settings.autostart')}</span>
+          <input
+            type="checkbox"
+            class="switch"
+            checked={settingsStore.autostart}
+            onchange={(e) => settingsStore.save({ autostart: e.currentTarget.checked })}
+          />
+          <p class="hint">{t('settings.autostart_hint')}</p>
+        </div>
       </section>
 
       <!-- ЗАГРУЗКИ -->
@@ -541,7 +552,7 @@
           <span class="label">{t('settings.about')}</span>
           <div class="about">
             <p><strong>DwV Download Manager</strong></p>
-            <p>0.1.4 · Rust + Tauri + Svelte 5</p>
+            <p>0.1.5 · Rust + Tauri + Svelte 5</p>
             <p>Copyright © DwV contributors · GPL-3.0-or-later</p>
           </div>
         </div>

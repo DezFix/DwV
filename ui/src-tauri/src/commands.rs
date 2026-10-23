@@ -1247,9 +1247,50 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String
 pub async fn save_settings(settings: Settings, state: State<'_, AppState>) -> Result<(), String> {
     settings.save(&state.settings_file)?;
     apply_limits(&state, &settings);
+    apply_autostart(settings.autostart);
     let mut current = state.settings.lock().unwrap();
     *current = settings;
     Ok(())
+}
+
+/// Adds or removes the current exe from the Windows Run key.
+pub fn apply_autostart(enabled: bool) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let exe = exe.to_string_lossy().to_string();
+        if enabled {
+            let command = format!(r#""{}" --autostart"#, exe);
+            let _ = std::process::Command::new("reg")
+                .args([
+                    "add",
+                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    "/v",
+                    "DwV",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    &command,
+                    "/f",
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        } else {
+            let _ = std::process::Command::new("reg")
+                .args([
+                    "delete",
+                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                    "/v",
+                    "DwV",
+                    "/f",
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        }
+    }
 }
 
 /// Pushes the concurrency and speed settings into the running queue and torrents.
@@ -1268,6 +1309,7 @@ pub fn apply_limits(state: &AppState, settings: &Settings) {
 pub async fn import_settings(settings: Settings, state: State<'_, AppState>) -> Result<(), String> {
     settings.save(&state.settings_file)?;
     apply_limits(&state, &settings);
+    apply_autostart(settings.autostart);
     let mut current = state.settings.lock().unwrap();
     *current = settings;
     Ok(())

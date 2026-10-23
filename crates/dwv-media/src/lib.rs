@@ -94,7 +94,24 @@ pub fn ytdlp_path() -> Result<PathBuf, Error> {
 
 pub async fn ensure_ytdlp() -> Result<PathBuf, Error> {
     let path = ytdlp_path()?;
+    let stamp = path.with_file_name("yt-dlp.stamp");
     if path.is_file() {
+        // yt-dlp can update itself. Check at most once a day so a video
+        // download is not delayed by a network round trip every time.
+        let stale = tokio::fs::metadata(&stamp)
+            .await
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.elapsed().ok())
+            .map(|age| age > Duration::from_secs(24 * 60 * 60))
+            .unwrap_or(true);
+        if stale {
+            let mut command = Command::new(&path);
+            command.arg("-U");
+            hide_console(&mut command);
+            let _ = command.output().await;
+            let _ = tokio::fs::write(&stamp, b"").await;
+        }
         return Ok(path);
     }
     if let Some(parent) = path.parent() {
@@ -103,6 +120,7 @@ pub async fn ensure_ytdlp() -> Result<PathBuf, Error> {
     let tmp = path.with_extension("exe.part");
     download_to(YTDLP_URL, &tmp, YTDLP_SHA256).await?;
     tokio::fs::rename(&tmp, &path).await?;
+    let _ = tokio::fs::write(&stamp, b"").await;
     Ok(path)
 }
 

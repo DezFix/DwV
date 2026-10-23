@@ -205,6 +205,8 @@
   "settings.close_tray": "Закрывать в трей",
   "settings.close_tray_hint": "При нажатии крестика сворачивать в трей, а не закрывать",
   "settings.notifications": "Уведомления",
+  "settings.autostart": "Запускать вместе с Windows",
+  "settings.autostart_hint": "Запускать DwV при входе в Windows",
   "settings.notifications_hint": "Показывать уведомления о завершении загрузок",
   "settings.queue": "Очередь загрузок",
   "settings.max_concurrent": "Максимум одновременных загрузок",

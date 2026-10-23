@@ -15,6 +15,8 @@ pub struct Settings {
     pub max_concurrent_downloads: u32,
     pub speed_limit_mbps: f64,
     pub auto_start_downloads: bool,
+    #[serde(default = "default_autostart")]
+    pub autostart: bool,
     pub minimize_to_tray: bool,
     pub close_to_tray: bool,
     pub show_notifications: bool,
@@ -39,6 +41,10 @@ pub struct Settings {
     pub torrent_dht_enabled: bool,
 }
 
+fn default_autostart() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -46,6 +52,7 @@ impl Default for Settings {
             max_concurrent_downloads: 3,
             speed_limit_mbps: 2.0,
             auto_start_downloads: true,
+            autostart: true,
             minimize_to_tray: true,
             close_to_tray: true,
             show_notifications: true,

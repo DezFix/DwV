@@ -205,6 +205,8 @@
   "settings.close_tray": "Close to tray",
   "settings.close_tray_hint": "Hide to the tray instead of closing on the close button",
   "settings.notifications": "Notifications",
+  "settings.autostart": "Start with Windows",
+  "settings.autostart_hint": "Launch DwV when you sign in to Windows",
   "settings.notifications_hint": "Show a notification when a download finishes",
   "settings.queue": "Download queue",
   "settings.max_concurrent": "Maximum simultaneous downloads",

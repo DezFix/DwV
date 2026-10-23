@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DwV",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "com.dwv.downloadmanager",
   "build": {
     "frontendDist": "frontend",
@@ -42,7 +42,12 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     },
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/hooks.nsh"
+      }
+    }
   },
   "plugins": {
     "updater": {

@@ -9,6 +9,7 @@ mod tray;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
+    let is_autostart = args.iter().any(|arg| arg == "--autostart");
     let initial_link = args
         .iter()
         .find(|a| a.starts_with("dwv://") || a.starts_with("magnet:"))
@@ -50,6 +51,12 @@ pub fn run() {
             crate::commands::start_ipc_server(app.handle().clone(), ipc_state);
 
             resume_pending(&app.state::<AppState>());
+
+            if is_autostart {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
 
             if let Some(link) = initial_url {
                 if let Some((target, kind)) = launch_target(&link) {
@@ -141,6 +148,7 @@ pub fn run() {
                 let settings = state.settings.lock().unwrap().clone();
                 i18n::set_locale(&settings.language);
                 commands::apply_limits(&state, &settings);
+                commands::apply_autostart(settings.autostart);
             }
         });
 }

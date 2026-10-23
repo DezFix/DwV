@@ -14,6 +14,7 @@ export interface Settings {
   speed_limit_mbps: number;
   speed_limit_enabled: boolean;
   auto_start_downloads: boolean;
+  autostart: boolean;
   minimize_to_tray: boolean;
   close_to_tray: boolean;
   show_notifications: boolean;
@@ -53,6 +54,7 @@ class SettingsStore {
   speed_limit_mbps = $state(2);
   speed_limit_enabled = $state(true);
   auto_start_downloads = $state(true);
+  autostart = $state(true);
   minimize_to_tray = $state(true);
   close_to_tray = $state(true);
   show_notifications = $state(true);
@@ -82,6 +84,7 @@ class SettingsStore {
       speed_limit_mbps: this.speed_limit_mbps,
       speed_limit_enabled: this.speed_limit_enabled,
       auto_start_downloads: this.auto_start_downloads,
+      autostart: this.autostart,
       minimize_to_tray: this.minimize_to_tray,
       close_to_tray: this.close_to_tray,
       show_notifications: this.show_notifications,
@@ -148,6 +151,7 @@ class SettingsStore {
       speed_limit_mbps: 2,
       speed_limit_enabled: true,
       auto_start_downloads: true,
+      autostart: true,
       minimize_to_tray: true,
       close_to_tray: true,
       show_notifications: true,

@@ -374,6 +374,36 @@ async function downloadCookies(finalUrl, url, storeId) {
   return [...pairs].join("; ");
 }
 
+async function pagePreview(url) {
+  const result = { url, title: "", thumbnail: "", site: "", author: "", found: false };
+  if (!isHttp(url)) return result;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    result.site = host;
+    let endpoint = "";
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be") {
+      endpoint = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`;
+      result.site = "YouTube";
+    } else if (host === "vimeo.com" || host.endsWith(".vimeo.com")) {
+      endpoint = `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}`;
+      result.site = "Vimeo";
+    }
+    if (endpoint) {
+      const response = await fetch(endpoint, { cache: "no-store" });
+      if (response.ok) {
+        const data = await response.json();
+        result.title = data.title || "";
+        result.thumbnail = data.thumbnail_url || "";
+        result.author = data.author_name || "";
+        result.site = data.provider_name || result.site;
+        result.found = Boolean(result.title || result.thumbnail);
+      }
+    }
+  } catch {}
+  return result;
+}
+
 async function downloadMessage(details) {
   const headers = {};
   const referrer = details.referrer || details.context?.referrer;
@@ -594,6 +624,13 @@ api.runtime.onMessage?.addListener((message, sender, sendResponse) => {
         videos: settings.captureVideo ? videosForTab(message.tabId) : [],
       });
     }).catch(() => respond(sendResponse, { videos: [] }));
+    return true;
+  }
+
+  if (message.type === "page-preview") {
+    pagePreview(message.url)
+      .then((preview) => respond(sendResponse, preview))
+      .catch(() => respond(sendResponse, { url: message.url, found: false }));
     return true;
   }
 

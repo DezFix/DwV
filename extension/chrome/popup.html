@@ -205,7 +205,52 @@
     .notice.bad { color: var(--bad); }
     .notice.good { color: var(--ok); }
 
-    .page-btn { width: 100%; }
+    .preview {
+      display: flex;
+      gap: 9px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-soft);
+    }
+
+    .preview-thumb {
+      position: relative;
+      width: 104px;
+      height: 59px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #2b3440, #1b222c);
+      flex-shrink: 0;
+    }
+
+    .preview-thumb img { width: 100%; height: 100%; object-fit: cover; display: none; }
+    .preview-thumb.has-img img { display: block; }
+    .preview-thumb .play {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 18px;
+      text-shadow: 0 1px 6px rgba(0,0,0,.6);
+      pointer-events: none;
+    }
+
+    .preview-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .preview-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .preview-meta { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .preview-btn { align-self: flex-start; margin-top: auto; padding: 4px 9px; font-size: 11px; border-radius: 5px; }
+    .videos { margin-top: 9px; }
   </style>
 </head>
 <body>
@@ -253,14 +298,19 @@
       <div class="label">Видео на странице</div>
       <button id="refresh" class="small" type="button">Обновить</button>
     </div>
-    <div class="videos" id="videos">
-      <div class="empty">Сканирую страницу…</div>
+    <div class="preview" id="page-preview">
+      <div class="preview-thumb" id="preview-thumb">
+        <img id="preview-img" alt="">
+        <span class="play">▶</span>
+      </div>
+      <div class="preview-info">
+        <div class="preview-title" id="preview-title">Видео на странице</div>
+        <div class="preview-meta" id="preview-meta"></div>
+        <button id="preview-download" class="primary preview-btn" type="button">Скачать</button>
+      </div>
     </div>
-  </section>
-
-  <section>
-    <button id="page-video" class="primary page-btn" type="button">Скачать видео со страницы</button>
-    <div class="hint">Если видео не найдено в списке, DwV скачает его по ссылке страницы.</div>
+    <div class="videos" id="videos">
+    </div>
     <div class="notice" id="page-notice" role="status" aria-live="polite"></div>
   </section>
 

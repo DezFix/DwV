@@ -8,8 +8,13 @@ const captureVideo = document.getElementById("capture-video");
 const videosBox = document.getElementById("videos");
 const refreshButton = document.getElementById("refresh");
 const openApp = document.getElementById("open-app");
-const pageVideo = document.getElementById("page-video");
 const pageNotice = document.getElementById("page-notice");
+const pagePreviewBox = document.getElementById("page-preview");
+const previewThumb = document.getElementById("preview-thumb");
+const previewImg = document.getElementById("preview-img");
+const previewTitle = document.getElementById("preview-title");
+const previewMeta = document.getElementById("preview-meta");
+const previewDownload = document.getElementById("preview-download");
 const notice = document.getElementById("notice");
 
 const APP_URL = "http://127.0.0.1:41763/";
@@ -128,23 +133,72 @@ function formatTime(seconds) {
   return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return "";
+  }
+}
+
+function renderPagePreview(meta, tab) {
+  const title = meta.title || tab?.title || "Видео на странице";
+  const site = meta.site || hostOf(tab?.url || "");
+  const author = meta.author || "";
+  previewTitle.textContent = title;
+  previewTitle.title = title;
+  previewMeta.textContent = [site, author].filter(Boolean).join(" · ");
+  previewDownload.textContent = meta.found ? "Скачать" : "Скачать видео со страницы";
+  previewDownload.dataset.url = tab?.url || meta.url || "";
+  if (meta.thumbnail) {
+    previewImg.src = meta.thumbnail;
+    previewThumb.classList.add("has-img");
+  } else {
+    previewImg.removeAttribute("src");
+    previewThumb.classList.remove("has-img");
+  }
+}
+
+async function refreshPagePreview(tab) {
+  if (!tab?.url || !/^https?:/i.test(tab.url)) {
+    pagePreviewBox.hidden = true;
+    return;
+  }
+  pagePreviewBox.hidden = false;
+  renderPagePreview({ url: tab.url, title: tab.title, site: hostOf(tab.url) }, tab);
+
+  let meta = {};
+  try {
+    meta = await api.tabs.sendMessage(tab.id, { type: "page-meta" }) || {};
+  } catch {}
+  let remote = {};
+  try {
+    remote = await api.runtime.sendMessage({ type: "page-preview", url: tab.url }) || {};
+  } catch {}
+
+  const merged = { ...meta, ...remote };
+  merged.title = remote.title || meta.title || tab.title || "";
+  merged.thumbnail = remote.thumbnail || meta.image || "";
+  merged.site = remote.site || meta.site || hostOf(tab.url);
+  merged.author = remote.author || "";
+  merged.url = tab.url;
+  merged.found = Boolean(remote.found || meta.video || remote.title);
+  renderPagePreview(merged, tab);
+}
+
 async function scanVideos() {
-  if (!enabled.checked) {
-    renderEmpty("Плагин выключен");
-    return;
-  }
-  if (!captureVideo.checked) {
-    renderEmpty("Перехват видео выключен");
-    return;
-  }
-
   const tab = await activeTab();
-  if (!tab?.id) {
-    renderEmpty("Нет активной вкладки");
+  if (tab?.id) void refreshPagePreview(tab);
+  setPageNotice("");
+
+  if (!enabled.checked || !captureVideo.checked) {
+    videosBox.innerHTML = "";
     return;
   }
-
-  renderEmpty("Сканирую страницу…");
+  if (!tab?.id) {
+    videosBox.innerHTML = "";
+    return;
+  }
 
   let pageVideos = [];
   try {
@@ -160,7 +214,7 @@ async function scanVideos() {
 
   const videos = mergeVideos([pageVideos, networkVideos]);
   if (videos.length === 0) {
-    renderEmpty("Видео не найдено");
+    videosBox.innerHTML = "";
     return;
   }
   renderVideos(videos, tab.id);
@@ -260,15 +314,16 @@ function setPageNotice(text, tone) {
   pageNotice.className = "notice" + (tone ? ` ${tone}` : "");
 }
 
-pageVideo.addEventListener("click", async () => {
-  const tab = await activeTab();
-  if (!tab?.url || !/^https?:/i.test(tab.url)) {
+previewImg.addEventListener("error", () => previewThumb.classList.remove("has-img"));
+
+previewDownload.addEventListener("click", async () => {
+  const url = previewDownload.dataset.url || "";
+  if (!url || !/^https?:/i.test(url)) {
     setPageNotice("Откройте обычную страницу сайта", "bad");
     return;
   }
-  await sendVideoUrl(tab.url, pageVideo, pageNotice);
+  await sendVideoUrl(url, previewDownload, pageNotice);
 });
-
 enabled.addEventListener("change", async () => {
   await saveSetting("enabled", enabled.checked);
   await scanVideos();

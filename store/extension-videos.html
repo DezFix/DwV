@@ -64,6 +64,24 @@
   .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
   .section-head .label { margin: 0; }
   .small { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 6px; padding: 4px 9px; font-size: 10.5px; }
+  .preview {
+    display: flex; gap: 10px; padding: 9px; margin-bottom: 9px;
+    border: 1px solid var(--border); border-radius: 9px;
+    background: linear-gradient(180deg, #1c232c, #181e26);
+  }
+  .preview-thumb { position: relative; width: 116px; height: 65px; border-radius: 7px; overflow: hidden; flex-shrink: 0; background: #000; }
+  .preview-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .preview-thumb .play {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 20px; text-shadow: 0 1px 6px rgba(0,0,0,.7);
+  }
+  .preview-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .preview-title { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+  .preview-meta { font-size: 10.5px; color: var(--muted); }
+  .preview-btn {
+    align-self: flex-start; margin-top: auto; border: 0; border-radius: 6px;
+    background: var(--accent); color: #fff; padding: 5px 10px; font-size: 11px; font-weight: 600;
+  }
   .videos { display: flex; flex-direction: column; gap: 8px; }
   .video {
     border: 1px solid var(--border); border-radius: 9px; padding: 10px 11px;
@@ -132,7 +150,17 @@
           <div class="label">Видео на странице</div>
           <button class="small">Обновить</button>
         </div>
-        <div class="videos">
+        <div class="preview">
+          <div class="preview-thumb">
+            <img src="assets/video-thumb.png" alt="">
+            <span class="play">▶</span>
+          </div>
+          <div class="preview-info">
+            <div class="preview-title">Тестовое видео — DwV</div>
+            <div class="preview-meta">YouTube · 0:03</div>
+            <button class="preview-btn">Скачать</button>
+          </div>
+        </div>        <div class="videos">
           <div class="video">
             <div class="video-name">Тестовое видео</div>
             <div class="video-meta">Файл · 640×360 · 0:03</div>
@@ -153,7 +181,6 @@
       </section>
 
       <section>
-        <button class="open-app" style="margin-bottom:8px">Скачать видео со страницы</button>
         <button class="open-app">Открыть DwV</button>
         <div class="note">Если видео не найдено, DwV скачает его по ссылке страницы</div>
       </section>

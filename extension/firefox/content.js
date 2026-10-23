@@ -94,6 +94,20 @@ function collectVideos() {
   return [...found.values()].slice(0, MAX_VIDEOS);
 }
 
+function pageMeta() {
+  const meta = (name) => {
+    const el = document.querySelector(`meta[property="${name}"], meta[name="${name}"]`);
+    return el?.content?.trim() || "";
+  };
+  return {
+    url: location.href,
+    title: meta("og:title") || meta("twitter:title") || document.title || "",
+    image: meta("og:image") || meta("og:image:secure_url") || meta("twitter:image") || "",
+    video: meta("og:video") || meta("og:video:url") || meta("og:video:secure_url") || meta("twitter:player:stream") || "",
+    site: meta("og:site_name") || location.hostname,
+  };
+}
+
 function notifyBackground() {
   const videos = collectVideos();
   try {
@@ -120,6 +134,11 @@ api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "scan-videos") {
     sendResponse({ videos: collectVideos() });
+    return;
+  }
+
+  if (message.type === "page-meta") {
+    sendResponse(pageMeta());
     return;
   }
 

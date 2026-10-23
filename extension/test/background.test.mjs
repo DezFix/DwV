@@ -154,6 +154,18 @@ function load(kind, initialStorage = {}) {
 
   globalThis.fetch = async (url, init) => {
     state.fetches.push({ url, init });
+    if (url.includes("/oembed")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          title: "Test video",
+          thumbnail_url: "https://example.com/thumb.jpg",
+          author_name: "Author",
+          provider_name: "YouTube",
+        }),
+      };
+    }
     const mode = state.fetchPlan.length > 0 ? state.fetchPlan.shift() : state.fetchMode;
     if (mode === "throw") throw new Error("connection refused");
     state.requests.push(JSON.parse(init.body));
@@ -220,8 +232,8 @@ function assertFetchShape(state) {
 assert(source === firefoxSource, "chrome and firefox background scripts must be identical");
 assert(contentSource === chromeContentSource, "chrome and firefox content scripts must be identical");
 assert(popupSource === chromePopupSource, "chrome and firefox popup scripts must be identical");
-assert(firefoxManifest.version === "1.2.3", "firefox manifest version");
-assert(chromeManifest.version === "1.2.3", "chrome manifest version");
+assert(firefoxManifest.version === "1.2.4", "firefox manifest version");
+assert(chromeManifest.version === "1.2.4", "chrome manifest version");
 assert(
   /sendResponse\(\{\s*videos:\s*collectVideos\(\)\s*\}\)/.test(contentSource),
   "content scan-videos responds with {videos}",
@@ -394,6 +406,14 @@ console.log("ok: chrome fail-open on every transport failure");
   assert(message, "page video must be sent as a video");
   assert(message.url === "https://www.youtube.com/watch?v=abc", "page video url");
   console.log("ok: context menu page video");
+  const preview = await sendRuntime(state, {
+    type: "page-preview",
+    url: "https://www.youtube.com/watch?v=abc",
+  });
+  assert(preview.found, "YouTube page preview is found");
+  assert(preview.title === "Test video", `preview title: ${preview.title}`);
+  assert(preview.thumbnail.includes("thumb.jpg"), "preview thumbnail");
+  console.log("ok: youtube page preview");
 }
 
 {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DwV",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Перехват файлов, видео и торрентов для менеджера загрузок DwV",
   "icons": {
     "16": "icon-16.png",
@@ -16,6 +16,7 @@
     "webRequest",
     "webRequestBlocking",
     "storage",
+    "cookies",
     "tabs",
     "scripting",
     "activeTab"

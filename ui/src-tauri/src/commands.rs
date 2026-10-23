@@ -271,8 +271,23 @@ pub fn spawn_event_bridge(
 }
 
 fn emit_added(state: &AppState, app: &AppHandle, id: i64) {
+    emit_added_with_requested(state, app, id, None);
+}
+
+fn emit_added_with_requested(
+    state: &AppState,
+    app: &AppHandle,
+    id: i64,
+    requested_name: Option<&str>,
+) {
     let item = state.downloads.lock().unwrap().get(&(id as u64)).cloned();
     if let Some(item) = item {
+        if requested_name.is_some_and(|name| name != item.filename) {
+            let _ = app.emit(
+                "download-renamed",
+                serde_json::json!({ "id": id, "filename": item.filename }),
+            );
+        }
         let _ = app.emit("download-added", item);
     }
 }
@@ -288,19 +303,81 @@ pub async fn add_download(
     Ok(id)
 }
 
+#[derive(Default)]
+pub struct DownloadContext {
+    pub url: String,
+    pub final_url: Option<String>,
+    pub filename: Option<String>,
+    pub referrer: Option<String>,
+    pub user_agent: Option<String>,
+    pub cookies: Option<String>,
+    pub headers: HashMap<String, String>,
+}
+
 pub async fn add_download_inner(state: &AppState, url: &str) -> Result<u64, String> {
-    let url = url.trim().to_string();
-    if url.is_empty() {
+    add_download_with_context(
+        state,
+        DownloadContext {
+            url: url.to_string(),
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+pub async fn add_download_with_context(
+    state: &AppState,
+    context: DownloadContext,
+) -> Result<u64, String> {
+    let original_url = context.url.trim().to_string();
+    if original_url.is_empty() {
         return Err("Пустая ссылка".to_string());
     }
+    let fetch_url = context
+        .final_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| url.starts_with("http://") || url.starts_with("https://"))
+        .unwrap_or(&original_url)
+        .to_string();
 
-    let filename = resolve_filename(&url).await;
+    let mut headers = Vec::new();
+    for (name, value) in &context.headers {
+        set_header(&mut headers, name, value);
+    }
+    if let Some(referrer) = context.referrer.as_deref() {
+        set_header(&mut headers, "Referer", referrer);
+    }
+    if let Some(user_agent) = context.user_agent.as_deref() {
+        set_header(&mut headers, "User-Agent", user_agent);
+    }
+    if let Some(cookies) = context.cookies.as_deref() {
+        set_header(&mut headers, "Cookie", cookies);
+    }
+    if headers
+        .iter()
+        .any(|(name, value)| has_crlf(name) || has_crlf(value))
+    {
+        return Err("Заголовки содержат перевод строки".to_string());
+    }
+
+    let filename = match context
+        .filename
+        .as_deref()
+        .map(sanitize_file_name)
+        .filter(|name| !name.trim().is_empty() && name != "download")
+    {
+        Some(name) => name,
+        None => resolve_filename_with_headers(&fetch_url, &headers).await,
+    };
     let category = category_of(&filename);
     let dir = state.target_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
+    let filename = unique_download_name(&dir, &filename);
     let target = dir.join(&filename);
-    let spec = DownloadSpec::new(url.clone(), target.clone());
+    let mut spec = DownloadSpec::new(fetch_url, target.clone());
+    spec.headers = headers;
 
     let id = state.queue.add(spec).await.map_err(|e| e.to_string())?;
     let db_id = state
@@ -312,7 +389,7 @@ pub async fn add_download_inner(state: &AppState, url: &str) -> Result<u64, Stri
         id,
         DownloadInfo {
             id: id as i64,
-            url,
+            url: original_url,
             filename,
             total_size: 0,
             downloaded: 0,
@@ -331,6 +408,98 @@ pub async fn add_download_inner(state: &AppState, url: &str) -> Result<u64, Stri
     );
 
     Ok(id)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadPreview {
+    pub filename: String,
+    pub suggested: String,
+    pub exists: bool,
+    pub path: String,
+}
+
+pub fn unique_download_name(dir: &Path, filename: &str) -> String {
+    let filename = sanitize_file_name(filename);
+    if !dir.join(&filename).exists() {
+        return filename;
+    }
+    let path = Path::new(&filename);
+    let stem = path
+        .file_stem()
+        .map(|value| value.to_string_lossy().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "download".to_string());
+    let extension = path
+        .extension()
+        .map(|value| format!(".{}", value.to_string_lossy()))
+        .unwrap_or_default();
+    for index in 1..10_000 {
+        let candidate = format!("{stem} ({index}){extension}");
+        if !dir.join(&candidate).exists() {
+            return candidate;
+        }
+    }
+    format!("{stem}-{}{extension}", now_secs())
+}
+
+#[command]
+pub async fn preview_download(
+    url: String,
+    state: State<'_, AppState>,
+) -> Result<DownloadPreview, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("Пустая ссылка".to_string());
+    }
+    let filename = resolve_filename(&url).await;
+    let dir = state.target_dir();
+    let exists = dir.join(&filename).exists();
+    let suggested = unique_download_name(&dir, &filename);
+    Ok(DownloadPreview {
+        filename,
+        suggested: suggested.clone(),
+        exists,
+        path: dir.join(suggested).to_string_lossy().to_string(),
+    })
+}
+
+#[command]
+pub async fn add_download_as(
+    url: String,
+    filename: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<u64, String> {
+    let id = add_download_with_context(
+        &state,
+        DownloadContext {
+            url,
+            filename: Some(filename),
+            ..Default::default()
+        },
+    )
+    .await?;
+    emit_added(&state, &app, id as i64);
+    Ok(id)
+}
+
+fn set_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) {
+    let value = value.trim();
+    if value.is_empty() {
+        return;
+    }
+    if let Some(entry) = headers
+        .iter_mut()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+    {
+        *entry = (name.to_string(), value.to_string());
+    } else {
+        headers.push((name.to_string(), value.to_string()));
+    }
+}
+
+fn has_crlf(value: &str) -> bool {
+    value.contains('\r') || value.contains('\n')
 }
 
 #[command]
@@ -1217,9 +1386,42 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
 
         while let Some(request) = rx.recv().await {
             match request {
-                dwv_ipc::Request::Add { url, .. } | dwv_ipc::Request::Download { url, .. } => {
-                    if let Ok(id) = add_download_inner(&ipc_state, &url).await {
+                dwv_ipc::Request::Add {
+                    url,
+                    filename,
+                    referrer,
+                } => {
+                    let context = DownloadContext {
+                        url,
+                        filename,
+                        referrer,
+                        ..Default::default()
+                    };
+                    if let Ok(id) = add_download_with_context(&ipc_state, context).await {
                         emit_added(&ipc_state, &state, id as i64);
+                    }
+                }
+                dwv_ipc::Request::Download {
+                    url,
+                    final_url,
+                    filename,
+                    referrer,
+                    cookies,
+                    user_agent,
+                    headers,
+                } => {
+                    let requested = filename.clone();
+                    let context = DownloadContext {
+                        url,
+                        final_url,
+                        filename,
+                        referrer,
+                        user_agent,
+                        cookies,
+                        headers,
+                    };
+                    if let Ok(id) = add_download_with_context(&ipc_state, context).await {
+                        emit_added_with_requested(&ipc_state, &state, id as i64, requested.as_deref());
                     }
                 }
                 dwv_ipc::Request::Torrent { source, .. } => {
@@ -1266,6 +1468,12 @@ pub async fn add_torrent_inner(
     let id = TORRENT_ID_BASE + state.torrent_seq.fetch_add(1, Ordering::Relaxed) as i64;
     let name = dwv_torrent::torrent_name(&source);
     let target = dir.join(&name);
+    if target.exists() {
+        return Err(format!(
+            "Файл или папка с именем «{}» уже существует",
+            name
+        ));
+    }
     let paused = !settings.torrent_autostart;
 
     let db_id = state.db.as_ref().and_then(|db| {
@@ -1540,11 +1748,24 @@ pub fn category_of(filename: &str) -> Category {
 
 /// Asks the server for the real file name, falling back to the URL path.
 pub async fn resolve_filename(url: &str) -> String {
+    resolve_filename_with_headers(url, &[]).await
+}
+
+async fn resolve_filename_with_headers(url: &str, headers: &[(String, String)]) -> String {
     if let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()
     {
-        if let Ok(resp) = client.head(url).send().await {
+        let mut map = reqwest::header::HeaderMap::new();
+        for (name, value) in headers {
+            if let (Ok(name), Ok(value)) = (
+                reqwest::header::HeaderName::try_from(name.as_str()),
+                reqwest::header::HeaderValue::from_str(value),
+            ) {
+                map.insert(name, value);
+            }
+        }
+        if let Ok(resp) = client.head(url).headers(map).send().await {
             if let Some(name) = resp
                 .headers()
                 .get(reqwest::header::CONTENT_DISPOSITION)

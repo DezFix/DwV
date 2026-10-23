@@ -148,14 +148,10 @@ async function setBadge(failed) {
   } catch {}
 }
 
-function deepLink(message) {
-  if (!message) return "dwv://";
-  const url = message.url || message.source;
-  if (!url) return "dwv://";
-  const type = isTorrent(url, message.filename)
-    ? "torrent"
-    : message.type === "video" ? "video" : "file";
-  return "dwv://add?url=" + encodeURIComponent(url) + "&type=" + type;
+function deepLink() {
+  // Only wake the app. The original message is retried with cookies and
+  // headers after launch, so adding the URL here would duplicate the download.
+  return "dwv://";
 }
 
 async function launchApp(deep) {
@@ -337,18 +333,54 @@ function findRecord(map, ...urls) {
   return undefined;
 }
 
+async function cookiesFor(url, storeId) {
+  if (!url || !api.cookies?.getAll) return "";
+  try {
+    const filter = { url };
+    if (storeId) filter.storeId = storeId;
+    const cookies = await api.cookies.getAll(filter);
+    return cookies
+      .filter((cookie) => cookie && cookie.name)
+      .map((cookie) => `${cookie.name}=${cookie.value ?? ""}`)
+      .join("; ");
+  } catch {
+    return "";
+  }
+}
+
+async function downloadCookies(finalUrl, url, storeId) {
+  const targets = [finalUrl];
+  try {
+    if (new URL(finalUrl).host === new URL(url).host) targets.push(url);
+  } catch {
+    targets.push(url);
+  }
+  const pairs = new Set();
+  for (const target of targets) {
+    const header = await cookiesFor(target, storeId);
+    for (const pair of header.split("; ")) {
+      if (pair) pairs.add(pair);
+    }
+  }
+  return [...pairs].join("; ");
+}
+
 async function downloadMessage(details) {
   const headers = {};
   const referrer = details.referrer || details.context?.referrer;
+  const finalUrl = details.finalUrl || details.url;
+  const cookieHeader = await downloadCookies(finalUrl, details.url, details.storeId);
   if (referrer) headers.Referer = referrer;
   if (details.context?.origin) headers.Origin = details.context.origin;
   if (details.context?.accept) headers.Accept = details.context.accept;
+  if (cookieHeader) headers.Cookie = cookieHeader;
   return {
     type: "download",
     url: details.url,
-    final_url: details.finalUrl || details.url,
+    final_url: finalUrl,
     filename: details.filename ? basename(details.filename) : undefined,
     referrer: referrer || undefined,
+    cookies: cookieHeader || undefined,
     user_agent: details.context?.userAgent || globalThis.navigator?.userAgent || "",
     headers,
     size: details.size,
@@ -499,7 +531,12 @@ async function onMenuClicked(info) {
     return;
   }
   if (!isHttp(url)) return;
-  await handOff(await downloadMessage({ url, finalUrl: url, referrer: info.pageUrl }));
+  await handOff(await downloadMessage({
+    url,
+    finalUrl: url,
+    referrer: info.pageUrl,
+    storeId: info.cookieStoreId,
+  }));
 }
 
 api.runtime.onInstalled.addListener(() => {

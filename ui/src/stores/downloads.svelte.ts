@@ -191,6 +191,10 @@ class DownloadsStore {
     await invoke<number>('add_download', { url });
   }
 
+  async addAs(url: string, filename: string) {
+    await invoke<number>('add_download_as', { url, filename });
+  }
+
   async addVideo(url: string) {
     await invoke<number>('add_video', { url });
   }

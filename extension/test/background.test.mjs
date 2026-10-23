@@ -52,6 +52,7 @@ function load(kind, initialStorage = {}) {
     fetchMode: "ok",
     fetchPlan: [],
     storage: { ...initialStorage },
+    cookies: [],
     suggestions: 0,
     launchFails: false,
     listeners: { headersReceived: [] },
@@ -64,6 +65,9 @@ function load(kind, initialStorage = {}) {
     contextMenus: {
       create: (options) => state.commands.push(["menu", options.id, options.contexts]),
       onClicked: { addListener: (fn) => (state.listeners.menuClicked = fn) },
+    },
+    cookies: {
+      getAll: () => Promise.resolve(state.cookies),
     },
     tabs: {
       create: (options) => {
@@ -216,8 +220,8 @@ function assertFetchShape(state) {
 assert(source === firefoxSource, "chrome and firefox background scripts must be identical");
 assert(contentSource === chromeContentSource, "chrome and firefox content scripts must be identical");
 assert(popupSource === chromePopupSource, "chrome and firefox popup scripts must be identical");
-assert(firefoxManifest.version === "1.2.0", "firefox manifest version");
-assert(chromeManifest.version === "1.2.0", "chrome manifest version");
+assert(firefoxManifest.version === "1.2.2", "firefox manifest version");
+assert(chromeManifest.version === "1.2.2", "chrome manifest version");
 assert(
   /sendResponse\(\{\s*videos:\s*collectVideos\(\)\s*\}\)/.test(contentSource),
   "content scan-videos responds with {videos}",
@@ -257,6 +261,10 @@ const baseHeaders = {
   assert(menu && menu[1] === "dwv-download", "menu created");
   assert(menu[2].includes("link") && menu[2].includes("image"), "menu covers link and image");
 
+  state.cookies = [
+    { name: "session", value: "ok" },
+    { name: "csrf", value: "token" },
+  ];
   sendHeaders(state, "https://example.com/files/archive.zip", baseHeaders);
   const handled = state.listeners.determining({
     id: 7,
@@ -282,7 +290,9 @@ const baseHeaders = {
   assert(message.headers.Accept === "application/zip", "accept header");
   assert(message.size === 4242, "size");
   assert(message.mime === "application/zip", "mime");
-  assert(!("cookies" in message), "download message has no cookies");
+  assert(message.cookies.includes("session=ok"), `cookies: ${message.cookies}`);
+  assert(message.cookies.includes("csrf=token"), `cookies: ${message.cookies}`);
+  assert(message.headers.Cookie === message.cookies, "cookie header matches cookies field");
 
   const names = state.commands.map(([name, id]) => [name, id]);
   assert(names.some(([name, id]) => name === "cancel" && id === 7), "browser copy cancelled");
@@ -563,7 +573,7 @@ console.log("ok: chrome fail-open on every transport failure");
   assert(message.url === "https://example.com/stream/index.m3u8", "video url");
   const tab = state.commands.find(([name]) => name === "tab");
   assert(tab, "dwv:// tab opened when DwV was offline");
-  assert(tab[1] === "dwv://add?url=https%3A%2F%2Fexample.com%2Fstream%2Findex.m3u8&type=video", `deep link: ${tab[1]}`);
+  assert(tab[1] === "dwv://", `launch deep link must not add a duplicate: ${tab[1]}`);
   assert(tab[2] === false, "launch tab is inactive");
   await waitFor(
     () => state.commands.some(([name]) => name === "tabClose"),

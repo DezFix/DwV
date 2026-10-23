@@ -267,6 +267,7 @@ pub async fn download_video_with_limit(
         .env("PATH", path_with_bin(&ffmpeg_dir))
         .arg("--newline")
         .arg("--no-playlist")
+        .arg("--no-overwrites")
         .arg("--windows-filenames")
         .arg("--ffmpeg-location")
         .arg(&ffmpeg_dir)

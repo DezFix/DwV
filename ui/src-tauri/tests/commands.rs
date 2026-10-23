@@ -1,7 +1,7 @@
 use dwv_app::commands::{
     AppState, Category, DownloadStatus, add_download_inner, apply_event, category_of,
     download_limit_bps, filename_from_disposition, from_url, infer_kind, is_torrent_source,
-    parse_deep_link, resolve_filename, upload_limit_bps,
+    parse_deep_link, resolve_filename, unique_download_name, upload_limit_bps,
 };
 use dwv_core::QueueEvent;
 use std::net::TcpListener;
@@ -57,6 +57,18 @@ fn takes_name_from_url() {
     assert_eq!(from_url("http://host/path/file.zip?x=1"), "file.zip");
     assert_eq!(from_url("http://host/"), "download");
     assert_eq!(from_url("http://host/a%20b.txt"), "a b.txt");
+}
+
+#[test]
+fn duplicate_names_get_a_counter() {
+    let dir = std::env::temp_dir().join(format!("dwv-dup-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("archive.zip"), b"first").unwrap();
+    assert_eq!(unique_download_name(&dir, "archive.zip"), "archive (1).zip");
+    std::fs::write(dir.join("archive (1).zip"), b"second").unwrap();
+    assert_eq!(unique_download_name(&dir, "archive.zip"), "archive (2).zip");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

@@ -6,6 +6,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("server returned status {0}")]
     Status(u16),
+    #[error("сервер вернул HTML вместо файла ({0}); возможно, нужны cookies авторизации")]
+    UnexpectedContent(String),
     #[error("invalid header: {0}")]
     BadHeader(String),
     #[error("connection closed before download completed")]

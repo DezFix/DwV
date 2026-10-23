@@ -1,4 +1,4 @@
-# DwV UI / backend contract (release 0.1.1)
+# DwV UI / backend contract (release 0.1.2)
 
 Фиксирует имена команд, события и поля, на которые опирается UI. Менять только вместе с обеими сторонами.
 
@@ -199,3 +199,15 @@ torrent_dht_enabled: boolean;        // default true
 - IPC: команда расширения `{"type":"video","url":"..."}`; ping показывает скрытое окно.
 - yt-dlp: путь берётся через `--print-to-file after_move` с файловым fallback; консольные окна скрыты.
 - UI: чекбоксы мультивыбора, диалог удаления с запоминанием, улитка в статус-баре, Ko-fi, `clipboard-manager:allow-read-text`.
+
+## Изменения 0.1.2
+
+- IPC `download` использует `cookies`, `referrer`, `user_agent`, `headers` и `final_url`; приложение передаёт их в `DownloadSpec.headers` и качает `final_url`.
+- `filename` из расширения используется как имя файла, если он задан; иначе имя берётся из `Content-Disposition`.
+- Дубликаты: `unique_download_name` добавляет ` (1)`, ` (2)` и т.д.; существующие файлы не перезаписываются.
+- `preview_download(url) -> { filename, suggested, exists, path }` — проверка имени перед ручным добавлением.
+- `add_download_as(url, filename)` — добавить файл с выбранным именем.
+- Событие `download-renamed` — файл из расширения получил новое имя.
+- `probe` отклоняет ответ `text/html`, если целевой файл не HTML (защита от страниц авторизации вместо файла).
+- Расширение: `cookies` permission, передача cookies/Referer/final_url, запуск через `dwv://` без дублирующего добавления.
+- Торренты с существующим именем не запускаются; yt-dlp вызывается с `--no-overwrites`.

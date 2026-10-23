@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -11,8 +12,16 @@
   import SettingsPanel from './components/SettingsPanel.svelte';
   import DetailsPanel from './components/DetailsPanel.svelte';
   import ConfirmDeleteDialog from './components/ConfirmDeleteDialog.svelte';
+  import DuplicateDialog from './components/DuplicateDialog.svelte';
   import KofiBanner from './components/KofiBanner.svelte';
   import Icon from './components/Icon.svelte';
+
+  interface DownloadPreview {
+    filename: string;
+    suggested: string;
+    exists: boolean;
+    path: string;
+  }
   import { downloadsStore, type DownloadCategory } from './stores/downloads.svelte.ts';
   import { settingsStore } from './stores/settings.svelte.ts';
   import { deletePrefs } from './stores/deletePrefs.svelte.ts';
@@ -35,6 +44,8 @@
   let checkedIds = $state<number[]>([]);
   let deleteTargets = $state<number[] | null>(null);
   let deleteFilename = $state<string | undefined>(undefined);
+  let duplicate = $state<DownloadPreview | null>(null);
+  let duplicateUrl = $state<string | null>(null);
   let showKofi = $state(false);
   let toastMessage = $state<string | null>(null);
   let toastTimer: number | undefined;
@@ -182,20 +193,55 @@
     return lower.startsWith('magnet:') || /\.torrent(?:[?#]|$)/.test(lower);
   }
 
+  async function performAdd(value: string, kind: AddKind, filename?: string) {
+    if (filename) {
+      await downloadsStore.addAs(value, filename);
+    } else if (kind === 'video') {
+      await downloadsStore.addVideo(value);
+    } else if (kind === 'torrent' || isTorrentSource(value)) {
+      await downloadsStore.addTorrent(value);
+    } else {
+      await downloadsStore.add(value);
+    }
+    mode = 'files';
+    query = '';
+  }
+
   async function handleAdd(url: string, kind: AddKind) {
     const value = url.trim();
     if (!value) return;
 
     try {
-      if (kind === 'video') {
-        await downloadsStore.addVideo(value);
-      } else if (kind === 'torrent' || isTorrentSource(value)) {
-        await downloadsStore.addTorrent(value);
-      } else {
-        await downloadsStore.add(value);
+      if (kind === 'file' && !isTorrentSource(value)) {
+        try {
+          const preview = await invoke<DownloadPreview>('preview_download', { url: value });
+          if (preview.exists) {
+            duplicateUrl = value;
+            duplicate = preview;
+            return;
+          }
+        } catch {
+          // Preview is a safety net; a failed HEAD must not block the download.
+        }
       }
-      mode = 'files';
-      query = '';
+      await performAdd(value, kind);
+    } catch (error) {
+      showToast(`${t('add.failed')}: ${String(error)}`);
+    }
+  }
+
+  function cancelDuplicate() {
+    duplicate = null;
+    duplicateUrl = null;
+  }
+
+  async function renameDuplicate() {
+    const url = duplicateUrl;
+    const filename = duplicate?.suggested;
+    cancelDuplicate();
+    if (!url || !filename) return;
+    try {
+      await performAdd(url, 'file', filename);
     } catch (error) {
       showToast(`${t('add.failed')}: ${String(error)}`);
     }
@@ -292,6 +338,9 @@
         await listen<CompletePayload>('download-complete', e => downloadsStore.onComplete(e.payload)),
         await listen<ErrorPayload>('download-error', e => downloadsStore.onError(e.payload)),
         await listen<DownloadItem>('download-added', e => downloadsStore.addItem(e.payload)),
+        await listen<{ id: number; filename: string }>('download-renamed', e =>
+          showToast(`${t('duplicate.renamed')}: ${e.payload.filename}`),
+        ),
         await listen<{ id: number }>('download-removed', e => downloadsStore.removeItem(e.payload.id)),
         await listen('open-settings', () => setMode('settings')),
         await appWindow.onDragDropEvent(event => {
@@ -429,6 +478,14 @@
     filename={deleteFilename}
     onCancel={cancelDelete}
     onConfirm={confirmDelete}
+  />
+
+  <DuplicateDialog
+    open={duplicate !== null}
+    filename={duplicate?.filename ?? ''}
+    suggested={duplicate?.suggested ?? ''}
+    onCancel={cancelDuplicate}
+    onRename={renameDuplicate}
   />
 
   {#if toastMessage}

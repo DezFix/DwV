@@ -1,10 +1,16 @@
-# DwV — TODO 0.1.1
+# DwV — TODO 0.1.2
 
 Сборка: `release/`. Проверки: `cargo test --workspace`, `cargo test --manifest-path ui/src-tauri/Cargo.toml`, `npm run check`, `npm run build`, `npm run tauri build`, тесты расширения, XPI в LibreWolf.
 
 ## Сделано
 
-### 0.1.1
+### 0.1.2
+- [x] Передача cookies, Referer и final_url из расширения; загрузки с авторизованных файлообменников
+- [x] HTML-заглушка вместо файла теперь даёт ошибку, а не битый архив
+- [x] Защита от дубликатов: вопрос «переименовать/не скачивать» для ручного добавления, авто-переименование для расширения
+- [x] Квадратная плитка типа файла (MP4/ZIP/PDF) работает как чекбокс массового выделения
+- [x] Иконки DwV для приложения и расширения, XPI 1.2.2
+- [x] Автозапуск расширения без дублирующего добавления ссылки
 - [x] Все загрузки (файлы, видео, архивы, торренты) в одну папку из настроек; убраны папка торрентов и подпапки категорий
 - [x] Кириллица в именах видео: `--print-to-file`, файловый fallback, корректный путь в БД и UI
 - [x] Метаданные видео находятся после исправления пути
@@ -42,9 +48,9 @@
 
 ## Артефакты
 
-- `release/DwV-0.1.1-portable.exe`
-- `release/DwV-0.1.1-setup.exe`
-- `release/DwV-0.1.1-x64.msi`
-- `release/dwv-firefox-1.2.1.xpi`
+- `release/DwV-0.1.2-portable.exe`
+- `release/DwV-0.1.2-setup.exe`
+- `release/DwV-0.1.2-x64.msi`
+- `release/dwv-firefox-1.2.2.xpi`
 - `release/INSTALL-EXTENSION.md`
 - `release/README.txt`

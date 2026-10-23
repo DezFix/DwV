@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use reqwest::StatusCode;
 use reqwest::header::{
-    CONTENT_LENGTH, CONTENT_RANGE, ETAG, HeaderMap, HeaderName, HeaderValue, LAST_MODIFIED, RANGE,
+    CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, HeaderMap, HeaderName, HeaderValue,
+    LAST_MODIFIED, RANGE,
 };
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, OpenOptions};
@@ -440,6 +441,12 @@ async fn probe(
     if !status.is_success() {
         return Err(Error::Status(status.as_u16()));
     }
+    let content_type = header_str(resp.headers(), CONTENT_TYPE)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if content_type.starts_with("text/html") && !target_is_html(&spec.target) {
+        return Err(Error::UnexpectedContent(content_type));
+    }
     let etag = header_str(resp.headers(), ETAG);
     let last_modified = header_str(resp.headers(), LAST_MODIFIED);
     if status == StatusCode::PARTIAL_CONTENT {
@@ -459,6 +466,17 @@ async fn probe(
         etag,
         last_modified,
     })
+}
+
+fn target_is_html(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "html" | "htm" | "xhtml" | "txt" | "xml" | "json" | "csv" | "md"
+            )
+        })
 }
 
 async fn run_segment(

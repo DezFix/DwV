@@ -7,7 +7,7 @@
 - `DwV-0.1.5-setup.exe` — установщик (рекомендуется, нужен для автообновления).
 - `DwV-0.1.5-portable.exe` — портативная версия.
 - `DwV-0.1.5-x64.msi` — MSI.
-- `dwv-firefox-1.2.4.xpi` — расширение для Firefox/LibreWolf.
+- `dwv-firefox-1.2.5.xpi` — расширение для Firefox/LibreWolf.
 - `latest.json` — манифест обновлений.
 
 ## Что нового
@@ -32,7 +32,7 @@
 - `DwV-0.1.5-portable.exe`: `30156740582F34714B69F604204A7CF2DD3DAC482E2BE6FF9E986D676EAF1786`
 - `DwV-0.1.5-setup.exe`: `428842C9D869D8605BF0B4F41C21486FB6FB8D51E085D20DADBA274E58A556A6`
 - `DwV-0.1.5-x64.msi`: `3F9E75849E09E5997B3052B93DA414E8B20C949FCFDFB832E3CD8A005212C3DC`
-- `dwv-firefox-1.2.4.xpi`: `715288C4BE64868016ECECC4DCB30B46C26BCB10C8E6BDCA27FEFFC8419FD3B8`
+- `dwv-firefox-1.2.5.xpi`: `5BA5676B65D5D2FDF10B662EF7EEF4EB5245975E75109DE94FFD4813252FEA73`
 
 ## Ограничения
 

@@ -57,7 +57,7 @@
 
 1. Скачайте `DwV-0.1.5-setup.exe` из [последнего релиза](https://github.com/DezFix/DwV/releases/latest) или запустите portable exe.
 2. Запустите DwV один раз. Приложение зарегистрирует протокол `dwv://` для автозапуска из расширения.
-3. Установите расширение `dwv-firefox-1.2.4.xpi` из релиза. Инструкция: [extension/INSTALL.md](extension/INSTALL.md).
+3. Установите расширение `dwv-firefox-1.2.5.xpi` из релиза. Инструкция: [extension/INSTALL.md](extension/INSTALL.md).
 4. Откройте настройки и выберите папку загрузок.
 
 Windows 10/11. Для видео при первом запуске скачиваются yt-dlp и ffmpeg в `%APPDATA%\DwV\bin`.

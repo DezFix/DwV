@@ -4,7 +4,7 @@ const HANDOFF_TTL_MS = 30000;
 const MAX_TRACKED = 200;
 const RETRY_MS = 500;
 const RETRY_WINDOW_MS = 20000;
-const TAB_CLOSE_MS = 1000;
+const TAB_CLOSE_MS = 8000;
 const MAX_MEDIA_PER_TAB = 50;
 const MAX_VIDEOS_PER_TAB = 100;
 
@@ -157,7 +157,7 @@ function deepLink() {
 async function launchApp(deep) {
   let tab;
   try {
-    tab = await api.tabs.create({ url: deep, active: false });
+    tab = await api.tabs.create({ url: deep, active: true });
   } catch {
     return false;
   }

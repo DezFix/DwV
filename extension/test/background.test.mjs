@@ -232,8 +232,8 @@ function assertFetchShape(state) {
 assert(source === firefoxSource, "chrome and firefox background scripts must be identical");
 assert(contentSource === chromeContentSource, "chrome and firefox content scripts must be identical");
 assert(popupSource === chromePopupSource, "chrome and firefox popup scripts must be identical");
-assert(firefoxManifest.version === "1.2.4", "firefox manifest version");
-assert(chromeManifest.version === "1.2.4", "chrome manifest version");
+assert(firefoxManifest.version === "1.2.5", "firefox manifest version");
+assert(chromeManifest.version === "1.2.5", "chrome manifest version");
 assert(
   /sendResponse\(\{\s*videos:\s*collectVideos\(\)\s*\}\)/.test(contentSource),
   "content scan-videos responds with {videos}",
@@ -607,10 +607,11 @@ console.log("ok: chrome fail-open on every transport failure");
   const tab = state.commands.find(([name]) => name === "tab");
   assert(tab, "dwv:// tab opened when DwV was offline");
   assert(tab[1] === "dwv://", `launch deep link must not add a duplicate: ${tab[1]}`);
-  assert(tab[2] === false, "launch tab is inactive");
+  assert(tab[2] === true, "launch tab is active");
   await waitFor(
     () => state.commands.some(([name]) => name === "tabClose"),
     "launch tab closed",
+    9000,
   );
   assert(state.fetches.length === 3, "POST retried until DwV answered");
   assert(!state.commands.some(([name, text]) => name === "badge" && text === "!"), "success clears badge");

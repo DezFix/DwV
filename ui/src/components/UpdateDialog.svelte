@@ -6,16 +6,14 @@
     open: boolean;
     version: string;
     notes?: string;
-    busy: boolean;
-    error?: string | null;
     onUpdate: () => void;
     onSkip: () => void;
   }
 
-  let { open, version, notes, busy, error, onUpdate, onSkip }: Props = $props();
+  let { open, version, notes, onUpdate, onSkip }: Props = $props();
 
   function handleKeydown(event: KeyboardEvent) {
-    if (!open || busy) return;
+    if (!open) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       onSkip();
@@ -26,7 +24,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-  <div class="overlay" role="presentation" onclick={() => !busy && onSkip()}>
+  <div class="overlay" role="presentation" onclick={onSkip}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="dialog"
@@ -36,7 +34,7 @@
       tabindex="-1"
       onclick={(event) => event.stopPropagation()}
     >
-      <button class="close" onclick={onSkip} disabled={busy} title={t('actions.close')} aria-label={t('actions.close')}>
+      <button class="close" onclick={onSkip} title={t('actions.close')} aria-label={t('actions.close')}>
         <Icon name="close" size={14} />
       </button>
 
@@ -46,19 +44,16 @@
 
       <h2 id="update-title">{t('update.title')}</h2>
       <p class="body">{t('update.available')} <strong>{version}</strong></p>
+      <p class="hint">{t('update.open_hint')}</p>
 
       {#if notes}
         <pre class="notes">{notes}</pre>
       {/if}
 
-      {#if error}
-        <p class="error">{t('update.failed')}: {error}</p>
-      {/if}
-
       <div class="actions">
-        <button class="btn ghost" onclick={onSkip} disabled={busy}>{t('update.skip')}</button>
-        <button class="btn primary" onclick={onUpdate} disabled={busy}>
-          {busy ? t('update.busy') : t('update.now')}
+        <button class="btn ghost" onclick={onSkip}>{t('update.skip')}</button>
+        <button class="btn primary" onclick={onUpdate}>
+          {t('update.now')}
         </button>
       </div>
     </div>
@@ -139,9 +134,15 @@
   }
 
   .body {
-    margin: 0 0 12px;
+    margin: 0 0 4px;
     font-size: 12.5px;
     color: var(--text-secondary);
+  }
+
+  .hint {
+    margin: 0 0 12px;
+    font-size: 11.5px;
+    color: var(--text-muted);
   }
 
   .notes {
@@ -155,13 +156,6 @@
     color: var(--text-secondary);
     font: 11.5px/1.5 ui-monospace, 'Cascadia Code', Consolas, monospace;
     white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  .error {
-    margin: 0 0 12px;
-    font-size: 12px;
-    color: var(--error);
     word-break: break-word;
   }
 

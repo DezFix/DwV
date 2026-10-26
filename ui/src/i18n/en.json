@@ -107,6 +107,8 @@
   "details.captcha_hint": "If the site asks for a captcha or login, open the page in your browser, complete it, and retry the download from the extension.",
   "update.title": "Update available",
   "update.available": "A new DwV version is available:",
+  "update.open_hint": "Opens the GitHub release page — download the new version there.",
+  "update.open_failed": "Could not open the update page",
   "update.now": "Update",
   "update.skip": "Skip",
   "update.busy": "Downloading and installing...",

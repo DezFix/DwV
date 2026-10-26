@@ -28,7 +28,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let data_dir = app_data_dir(app.handle());
             std::fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;

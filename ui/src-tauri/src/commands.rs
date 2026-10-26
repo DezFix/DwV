@@ -1392,16 +1392,28 @@ pub async fn check_updates() -> Result<Option<UpdateInfo>, String> {
         .as_str()
         .unwrap_or("")
         .trim_start_matches('v');
+    let current = env!("CARGO_PKG_VERSION");
 
-    if version.is_empty() || version == env!("CARGO_PKG_VERSION") {
+    let is_newer = match (
+        semver::Version::parse(version),
+        semver::Version::parse(current),
+    ) {
+        (Ok(latest), Ok(current)) => latest > current,
+        _ => !version.is_empty() && version != current,
+    };
+    if !is_newer {
         return Ok(None);
     }
+
+    let url = release["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/DezFix/DwV/releases/latest");
 
     Ok(Some(UpdateInfo {
         available: true,
         version: version.to_string(),
         notes: release["body"].as_str().unwrap_or("").to_string(),
-        url: release["html_url"].as_str().unwrap_or("").to_string(),
+        url: url.to_string(),
     }))
 }
 

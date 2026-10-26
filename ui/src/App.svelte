@@ -5,7 +5,6 @@
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { check, type Update } from '@tauri-apps/plugin-updater';
   import DownloadList from './components/DownloadList.svelte';
   import Sidebar, { type View } from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -73,10 +72,12 @@
   let addSeq = 0;
   let defaultDir = $state('');
   let showKofi = $state(false);
-  let updateInfo = $state<{ version: string; notes?: string } | null>(null);
-  let updateBusy = $state(false);
-  let updateError = $state<string | null>(null);
-  let pendingUpdate: Update | null = null;
+  let updateInfo = $state<{
+    available: boolean;
+    version: string;
+    notes?: string;
+    url: string;
+  } | null>(null);
   let toastMessage = $state<string | null>(null);
   let toastTimer: number | undefined;
 
@@ -264,7 +265,12 @@
 
   async function checkForUpdates(manual: boolean) {
     try {
-      const update = await check();
+      const update = await invoke<{
+        available: boolean;
+        version: string;
+        notes?: string;
+        url: string;
+      } | null>('check_updates');
       if (!update) {
         if (manual) showToast(t('update.none'));
         return;
@@ -274,23 +280,20 @@
         skipped = window.localStorage.getItem('dwv.skipped_update');
       } catch {}
       if (!manual && skipped === update.version) return;
-      pendingUpdate = update;
-      updateInfo = { version: update.version, notes: update.body ?? '' };
-      updateError = null;
+      updateInfo = update;
     } catch (error) {
       if (manual) showToast(`${t('update.check_failed')}: ${String(error)}`);
     }
   }
 
-  async function installUpdate() {
-    if (!pendingUpdate) return;
-    updateBusy = true;
-    updateError = null;
+  async function openUpdate() {
+    const update = updateInfo;
+    if (!update) return;
     try {
-      await pendingUpdate.downloadAndInstall();
+      await invoke('open_url', { url: update.url });
+      skipUpdate();
     } catch (error) {
-      updateError = String(error);
-      updateBusy = false;
+      showToast(`${t('update.open_failed')}: ${String(error)}`);
     }
   }
 
@@ -301,9 +304,6 @@
       } catch {}
     }
     updateInfo = null;
-    pendingUpdate = null;
-    updateBusy = false;
-    updateError = null;
   }
 
   function isTorrentSource(value: string): boolean {
@@ -730,9 +730,7 @@
     open={updateInfo !== null}
     version={updateInfo?.version ?? ''}
     notes={updateInfo?.notes}
-    busy={updateBusy}
-    error={updateError}
-    onUpdate={installUpdate}
+    onUpdate={openUpdate}
     onSkip={skipUpdate}
   />
 

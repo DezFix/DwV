@@ -18,7 +18,6 @@
     "core:event:default",
     "core:tray:default",
     "dialog:default",
-    "clipboard-manager:allow-read-text",
-    "updater:default"
+    "clipboard-manager:allow-read-text"
   ]
 }

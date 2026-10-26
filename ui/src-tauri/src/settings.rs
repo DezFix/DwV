@@ -15,6 +15,8 @@ pub struct Settings {
     pub max_concurrent_downloads: u32,
     pub speed_limit_mbps: f64,
     pub auto_start_downloads: bool,
+    #[serde(default = "default_true")]
+    pub ask_save_path: bool,
     #[serde(default = "default_autostart")]
     pub autostart: bool,
     pub minimize_to_tray: bool,
@@ -45,6 +47,10 @@ fn default_autostart() -> bool {
     true
 }
 
+fn default_true() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -52,6 +58,7 @@ impl Default for Settings {
             max_concurrent_downloads: 3,
             speed_limit_mbps: 2.0,
             auto_start_downloads: true,
+            ask_save_path: true,
             autostart: true,
             minimize_to_tray: true,
             close_to_tray: true,
@@ -109,5 +116,18 @@ impl Settings {
         }
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(file, json).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn old_settings_without_ask_save_path_keep_the_dialog() {
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("ask_save_path");
+        let settings: Settings = serde_json::from_value(value).unwrap();
+        assert!(settings.ask_save_path);
     }
 }

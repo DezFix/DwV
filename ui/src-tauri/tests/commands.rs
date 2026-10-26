@@ -1,7 +1,8 @@
 use dwv_app::commands::{
-    AppState, Category, DownloadStatus, add_download_inner, apply_event, category_of,
-    download_limit_bps, filename_from_disposition, from_url, infer_kind, is_torrent_source,
-    parse_deep_link, resolve_filename, unique_download_name, upload_limit_bps,
+    AppState, Category, DownloadContext, DownloadStatus, add_download_inner,
+    add_download_with_context, apply_event, category_of, download_limit_bps,
+    filename_from_disposition, from_url, infer_kind, is_torrent_source, parse_deep_link,
+    resolve_filename, unique_download_name, upload_limit_bps,
 };
 use dwv_core::QueueEvent;
 use std::net::TcpListener;
@@ -148,6 +149,51 @@ async fn downloads_file_into_the_download_folder() {
     assert_eq!(item.category, Category::Video);
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn downloads_into_the_chosen_folder() {
+    let payload = b"chosen".to_vec();
+    let url = serve(payload.clone());
+
+    let root = std::env::temp_dir().join(format!("dwv-chosen-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let chosen = root.join("chosen");
+    std::fs::create_dir_all(&chosen).unwrap();
+
+    let (state, mut events) = AppState::new(root.join("settings.json"), root.clone());
+    let id = add_download_with_context(
+        &state,
+        DownloadContext {
+            url,
+            dir: Some(chosen.clone()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("add download");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if tokio::time::Instant::now() >= deadline {
+            panic!("download did not finish in time");
+        }
+        match tokio::time::timeout(Duration::from_secs(5), events.recv()).await {
+            Ok(Some(QueueEvent::Finished { id: done, .. })) if done == id => break,
+            Ok(Some(QueueEvent::Failed { id: bad, error })) if bad == id => {
+                panic!("download failed: {error}");
+            }
+            Ok(None) => break,
+            Ok(Some(_)) | Err(_) => {}
+        }
+    }
+
+    assert!(
+        chosen.join("clip.mp4").exists(),
+        "file was not saved into the chosen folder"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

@@ -1,18 +1,19 @@
 <script lang="ts">
-  import DownloadItem from './DownloadItem.svelte';
-  import { downloadsStore, type DownloadItem as DownloadItemType, type DownloadCategory } from '../stores/downloads.svelte.ts';
+  import DownloadItem, { type SelectEvent } from './DownloadItem.svelte';
+  import { downloadsStore, type DownloadCategory } from '../stores/downloads.svelte.ts';
+  import { visibleDownloads, type SortBy } from '../stores/listView.ts';
   import { t } from '../i18n/index.svelte.ts';
   import type { View } from './Sidebar.svelte';
 
   interface Props {
     view: View;
     category: DownloadCategory | null;
-    sortBy: 'added' | 'name' | 'progress' | 'speed' | 'size';
+    sortBy: SortBy;
     sortDir: 'asc' | 'desc';
     query: string;
     selectedId: number | null;
     checkedIds: number[];
-    onSelect: (id: number) => void;
+    onSelect: (id: number, event: SelectEvent) => void;
     onCheck: (id: number) => void;
     onRemove: (id: number) => void;
     onError: (message: string) => void;
@@ -20,50 +21,9 @@
 
   let { view, category, sortBy, sortDir, query, selectedId, checkedIds, onSelect, onCheck, onRemove, onError }: Props = $props();
 
-  const filtered = $derived(sortItems(searchItems(filterByStatus(filterByCategory(downloadsStore.items)))));
-
-  function searchItems(items: DownloadItemType[]) {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter(
-      item =>
-        item.filename.toLowerCase().includes(needle) || item.url.toLowerCase().includes(needle),
-    );
-  }
-
-  function filterByCategory(items: DownloadItemType[]) {
-    if (!category) return items;
-    return items.filter(item => item.category === category);
-  }
-
-  function filterByStatus(items: DownloadItemType[]) {
-    if (view === 'all') return items;
-    if (view === 'torrent') return items.filter(item => item.kind === 'torrent');
-    if (view === 'video') {
-      return items.filter(item => item.kind === 'video' || item.category === 'video');
-    }
-    return items.filter(item => item.status === view);
-  }
-
-  function sortItems(items: DownloadItemType[]) {
-    const value = (item: DownloadItemType): string | number => {
-      switch (sortBy) {
-        case 'name': return item.filename.toLowerCase();
-        case 'progress': return item.total_size > 0 ? item.downloaded / item.total_size : 0;
-        case 'speed': return item.speed;
-        case 'size': return item.total_size;
-        case 'added': return item.added_at;
-      }
-    };
-
-    return [...items].sort((a, b) => {
-      const av = value(a);
-      const bv = value(b);
-      if (av < bv) return sortDir === 'asc' ? -1 : 1;
-      if (av > bv) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }
+  const filtered = $derived(
+    visibleDownloads(downloadsStore.items, view, category, query, sortBy, sortDir),
+  );
 </script>
 
 <div class="content">

@@ -65,13 +65,23 @@ pub fn run() {
                         let handle = app_handle.clone();
                         let rt = state.handle.clone();
                         rt.spawn(async move {
-                            let _ = crate::commands::add_link(
-                                &state,
-                                &handle,
-                                &target,
-                                kind.as_deref(),
-                            )
-                            .await;
+                            let ask = state.settings.lock().unwrap().ask_save_path;
+                            if ask {
+                                crate::commands::queue_deep_link(
+                                    &state,
+                                    &handle,
+                                    &target,
+                                    kind.as_deref(),
+                                );
+                            } else {
+                                let _ = crate::commands::add_link(
+                                    &state,
+                                    &handle,
+                                    &target,
+                                    kind.as_deref(),
+                                )
+                                .await;
+                            }
                         });
                     }
                 }
@@ -121,6 +131,10 @@ pub fn run() {
             commands::add_download_as,
             commands::add_video,
             commands::add_torrent,
+            commands::pending_downloads,
+            commands::resolve_pending,
+            commands::cancel_pending,
+            commands::default_download_dir,
             commands::get_downloads,
             commands::get_download_details,
             commands::pause_download,

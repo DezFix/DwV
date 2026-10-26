@@ -189,20 +189,20 @@ class DownloadsStore {
     }
   }
 
-  async add(url: string) {
-    await invoke<number>('add_download', { url });
+  async add(url: string, dir?: string) {
+    await invoke<number>('add_download', { url, dir });
   }
 
-  async addAs(url: string, filename: string) {
-    await invoke<number>('add_download_as', { url, filename });
+  async addAs(url: string, filename: string, dir?: string) {
+    await invoke<number>('add_download_as', { url, filename, dir });
   }
 
-  async addVideo(url: string) {
-    await invoke<number>('add_video', { url });
+  async addVideo(url: string, dir?: string) {
+    await invoke<number>('add_video', { url, dir });
   }
 
-  async addTorrent(source: string) {
-    await invoke<number>('add_torrent', { source });
+  async addTorrent(source: string, dir?: string) {
+    await invoke<number>('add_torrent', { source, dir });
   }
 
   addItem(item: DownloadItem) {

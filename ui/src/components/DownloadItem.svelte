@@ -4,11 +4,13 @@
   import { t } from '../i18n/index.svelte.ts';
   import Icon from './Icon.svelte';
 
+  export type SelectEvent = { ctrlKey: boolean; shiftKey: boolean; metaKey: boolean };
+
   interface Props {
     item: DownloadItem;
     selected: boolean;
     checked: boolean;
-    onSelect: (id: number) => void;
+    onSelect: (id: number, event: SelectEvent) => void;
     onCheck: (id: number) => void;
     onRemove: (id: number) => void;
     onError: (message: string) => void;
@@ -121,7 +123,7 @@
   function handleRowKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      onSelect(item.id);
+      onSelect(item.id, event);
     }
   }
 
@@ -137,7 +139,7 @@
   class:checked
   role="listitem"
   tabindex="0"
-  onclick={() => onSelect(item.id)}
+  onclick={(event) => onSelect(item.id, event)}
   onkeydown={handleRowKeydown}
   oncontextmenu={handleContextMenu}
 >
@@ -309,7 +311,7 @@
   }
 
   .file-tile.checked {
-    box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--accent);
+    box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--warning);
   }
 
   .cat-video { background: linear-gradient(135deg, #f0883e, #db6d28); }

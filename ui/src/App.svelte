@@ -14,6 +14,7 @@
   import DetailsPanel from './components/DetailsPanel.svelte';
   import ConfirmDeleteDialog from './components/ConfirmDeleteDialog.svelte';
   import DuplicateDialog from './components/DuplicateDialog.svelte';
+  import AddDownloadDialog from './components/AddDownloadDialog.svelte';
   import UpdateDialog from './components/UpdateDialog.svelte';
   import KofiBanner from './components/KofiBanner.svelte';
   import Icon from './components/Icon.svelte';
@@ -24,8 +25,26 @@
     exists: boolean;
     path: string;
   }
+
+  interface AddRequest {
+    key: string;
+    kind: AddKind;
+    url: string;
+    filename: string;
+    dir: string;
+    pendingId?: number;
+  }
+
+  interface PendingDownload {
+    id: number;
+    kind: string;
+    url: string;
+    filename: string;
+    dir: string;
+  }
   import { downloadsStore, type DownloadCategory } from './stores/downloads.svelte.ts';
   import { settingsStore } from './stores/settings.svelte.ts';
+  import { visibleDownloads, type SortBy } from './stores/listView.ts';
   import { deletePrefs } from './stores/deletePrefs.svelte.ts';
   import { setLocale, t } from './i18n/index.svelte.ts';
   import type {
@@ -40,14 +59,19 @@
   let query = $state('');
   let view = $state<View>('all');
   let category = $state<DownloadCategory | null>(null);
-  let sortBy = $state<'added' | 'name' | 'progress' | 'speed' | 'size'>('added');
+  let sortBy = $state<SortBy>('added');
   let sortDir = $state<'asc' | 'desc'>('desc');
   let selectedId = $state<number | null>(null);
   let checkedIds = $state<number[]>([]);
+  let anchorId = $state<number | null>(null);
   let deleteTargets = $state<number[] | null>(null);
   let deleteFilename = $state<string | undefined>(undefined);
   let duplicate = $state<DownloadPreview | null>(null);
   let duplicateUrl = $state<string | null>(null);
+  let duplicateDir = $state<string | undefined>(undefined);
+  let addQueue = $state<AddRequest[]>([]);
+  let addSeq = 0;
+  let defaultDir = $state('');
   let showKofi = $state(false);
   let updateInfo = $state<{ version: string; notes?: string } | null>(null);
   let updateBusy = $state(false);
@@ -83,10 +107,54 @@
     selectedId = selectedId === id ? null : id;
   }
 
+  const visible = $derived(
+    visibleDownloads(downloadsStore.items, view, category, query, sortBy, sortDir),
+  );
+
+  const allVisibleChecked = $derived(
+    visible.length > 0 && visible.every(item => checkedIds.includes(item.id)),
+  );
+
   function toggleCheck(id: number) {
     checkedIds = checkedIds.includes(id)
       ? checkedIds.filter(item => item !== id)
       : [...checkedIds, id];
+  }
+
+  function handleRowClick(
+    id: number,
+    event: { ctrlKey: boolean; shiftKey: boolean; metaKey: boolean },
+  ) {
+    if (event.ctrlKey || event.metaKey) {
+      toggleCheck(id);
+    } else if (event.shiftKey) {
+      const ids = visible.map(item => item.id);
+      const to = ids.indexOf(id);
+      const from = anchorId !== null ? ids.indexOf(anchorId) : to;
+      if (to >= 0 && from >= 0) {
+        const range = ids.slice(Math.min(from, to), Math.max(from, to) + 1);
+        checkedIds = [...new Set([...checkedIds, ...range])];
+      }
+    } else {
+      toggleSelect(id);
+    }
+    anchorId = id;
+  }
+
+  function toggleSelectAll() {
+    checkedIds = allVisibleChecked ? [] : visible.map(item => item.id);
+  }
+
+  function handleGlobalKeydown(event: KeyboardEvent) {
+    if (mode !== 'files') return;
+    if (addQueue.length > 0 || duplicate !== null || deleteTargets !== null) return;
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    if (event.code !== 'KeyA') return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (visible.length === 0) return;
+    event.preventDefault();
+    checkedIds = visible.map(item => item.id);
   }
 
   function requestRemove(id: number) {
@@ -243,30 +311,28 @@
     return lower.startsWith('magnet:') || /\.torrent(?:[?#]|$)/.test(lower);
   }
 
-  async function performAdd(value: string, kind: AddKind, filename?: string) {
+  async function performAdd(value: string, kind: AddKind, filename?: string, dir?: string) {
     if (filename) {
-      await downloadsStore.addAs(value, filename);
+      await downloadsStore.addAs(value, filename, dir);
     } else if (kind === 'video') {
-      await downloadsStore.addVideo(value);
+      await downloadsStore.addVideo(value, dir);
     } else if (kind === 'torrent' || isTorrentSource(value)) {
-      await downloadsStore.addTorrent(value);
+      await downloadsStore.addTorrent(value, dir);
     } else {
-      await downloadsStore.add(value);
+      await downloadsStore.add(value, dir);
     }
     mode = 'files';
     query = '';
   }
 
-  async function handleAdd(url: string, kind: AddKind) {
-    const value = url.trim();
-    if (!value) return;
-
+  async function startAdd(value: string, kind: AddKind, dir?: string) {
     try {
       if (kind === 'file' && !isTorrentSource(value)) {
         try {
-          const preview = await invoke<DownloadPreview>('preview_download', { url: value });
+          const preview = await invoke<DownloadPreview>('preview_download', { url: value, dir });
           if (preview.exists) {
             duplicateUrl = value;
+            duplicateDir = dir;
             duplicate = preview;
             return;
           }
@@ -274,24 +340,110 @@
           // Preview is a safety net; a failed HEAD must not block the download.
         }
       }
-      await performAdd(value, kind);
+      await performAdd(value, kind, undefined, dir);
     } catch (error) {
       showToast(`${t('add.failed')}: ${String(error)}`);
     }
   }
 
+  function suggestedName(url: string) {
+    const path = url.split(/[?#]/)[0];
+    const tail = path.split('/').filter(Boolean).pop() ?? '';
+    try {
+      return decodeURIComponent(tail);
+    } catch {
+      return tail;
+    }
+  }
+
+  async function handleAdd(url: string, kind: AddKind) {
+    const value = url.trim();
+    if (!value) return;
+
+    if (settingsStore.ask_save_path) {
+      addQueue = [
+        ...addQueue,
+        {
+          key: `local-${addSeq++}`,
+          kind,
+          url: value,
+          filename: suggestedName(value),
+          dir: settingsStore.download_dir || defaultDir,
+        },
+      ];
+      return;
+    }
+
+    await startAdd(value, kind);
+  }
+
+  async function confirmAdd(dir: string, hide: boolean) {
+    const request = addQueue[0];
+    if (!request) return;
+    addQueue = addQueue.slice(1);
+    if (hide) await settingsStore.save({ ask_save_path: false });
+
+    if (request.pendingId !== undefined) {
+      try {
+        await invoke('resolve_pending', { id: request.pendingId, dir });
+        mode = 'files';
+        query = '';
+      } catch (error) {
+        showToast(`${t('add.failed')}: ${String(error)}`);
+      }
+      return;
+    }
+
+    await startAdd(request.url, request.kind, dir);
+  }
+
+  async function cancelAdd() {
+    const request = addQueue[0];
+    if (!request) return;
+    addQueue = addQueue.slice(1);
+    if (request.pendingId !== undefined) {
+      try {
+        await invoke('cancel_pending', { id: request.pendingId });
+      } catch {
+        // The request may already be gone.
+      }
+    }
+  }
+
+  function enqueuePending(item: PendingDownload) {
+    if (addQueue.some(request => request.pendingId === item.id)) return;
+    const kind: AddKind = item.kind === 'torrent'
+      ? 'torrent'
+      : item.kind === 'video'
+        ? 'video'
+        : 'file';
+    addQueue = [
+      ...addQueue,
+      {
+        key: `pending-${item.id}`,
+        kind,
+        url: item.url,
+        filename: item.filename,
+        dir: item.dir,
+        pendingId: item.id,
+      },
+    ];
+  }
+
   function cancelDuplicate() {
     duplicate = null;
     duplicateUrl = null;
+    duplicateDir = undefined;
   }
 
   async function renameDuplicate() {
     const url = duplicateUrl;
     const filename = duplicate?.suggested;
+    const dir = duplicateDir;
     cancelDuplicate();
     if (!url || !filename) return;
     try {
-      await performAdd(url, 'file', filename);
+      await performAdd(url, 'file', filename, dir);
     } catch (error) {
       showToast(`${t('add.failed')}: ${String(error)}`);
     }
@@ -383,6 +535,11 @@
 
     (async () => {
       await Promise.all([downloadsStore.load(), settingsStore.load()]);
+      try {
+        defaultDir = await invoke<string>('default_download_dir');
+      } catch {
+        defaultDir = '';
+      }
 
       unlisteners.push(
         await listen<ProgressPayload>('download-progress', e => downloadsStore.updateProgress(e.payload)),
@@ -390,6 +547,7 @@
         await listen<CompletePayload>('download-complete', e => downloadsStore.onComplete(e.payload)),
         await listen<ErrorPayload>('download-error', e => downloadsStore.onError(e.payload)),
         await listen<DownloadItem>('download-added', e => downloadsStore.addItem(e.payload)),
+        await listen<PendingDownload>('pending-download', e => enqueuePending(e.payload)),
         await listen<{ id: number; filename: string }>('download-renamed', e =>
           showToast(`${t('duplicate.renamed')}: ${e.payload.filename}`),
         ),
@@ -415,6 +573,13 @@
         }),
       );
 
+      try {
+        const waiting = await invoke<PendingDownload[]>('pending_downloads');
+        for (const item of waiting) enqueuePending(item);
+      } catch {
+        // The queue is rebuilt on the next event.
+      }
+
       void checkForUpdates(false);
     })();
 
@@ -425,6 +590,8 @@
     };
   });
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <div
   class="app"
@@ -458,6 +625,11 @@
                 {category ? t(`type.${category}`) : t(`filter.${view}`)}
               </span>
               <span class="crumb-count">{downloadsStore.items.length}</span>
+              {#if visible.length > 0}
+                <button class="select-all" onclick={toggleSelectAll} title={t('bulk.select_all_hint')}>
+                  {allVisibleChecked ? t('bulk.clear') : t('bulk.select_all')}
+                </button>
+              {/if}
             </div>
 
             <div class="sort-group">
@@ -509,7 +681,7 @@
             {query}
             {selectedId}
             {checkedIds}
-            onSelect={toggleSelect}
+            onSelect={handleRowClick}
             onCheck={toggleCheck}
             onRemove={requestRemove}
             onError={showToast}
@@ -542,6 +714,17 @@
     onCancel={cancelDuplicate}
     onRename={renameDuplicate}
   />
+
+  {#key addQueue[0]?.key}
+    <AddDownloadDialog
+      open={addQueue.length > 0 && duplicate === null}
+      filename={addQueue[0]?.filename ?? ''}
+      url={addQueue[0]?.url ?? ''}
+      dir={addQueue[0]?.dir ?? ''}
+      onCancel={cancelAdd}
+      onConfirm={confirmAdd}
+    />
+  {/key}
 
   <UpdateDialog
     open={updateInfo !== null}
@@ -681,6 +864,25 @@
     font-size: 11px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+  }
+
+  .select-all {
+    margin-left: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  }
+
+  .select-all:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--accent);
   }
 
   .sort-group {

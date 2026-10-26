@@ -36,6 +36,8 @@ pub struct AppState {
     pub torrents: TorrentManager,
     pub video_tasks: Arc<Mutex<HashMap<i64, tokio::task::JoinHandle<()>>>>,
     pub media_cache: Arc<Mutex<HashMap<String, MediaInfo>>>,
+    pub pending: Arc<Mutex<HashMap<u64, PendingAdd>>>,
+    pub pending_seq: Arc<AtomicU64>,
 }
 
 /// The core queue runs as tokio tasks, so the app owns a tokio runtime for its
@@ -59,6 +61,8 @@ impl Clone for AppState {
             torrents: self.torrents.clone(),
             video_tasks: self.video_tasks.clone(),
             media_cache: self.media_cache.clone(),
+            pending: self.pending.clone(),
+            pending_seq: self.pending_seq.clone(),
         }
     }
 }
@@ -105,6 +109,8 @@ impl AppState {
                 torrents,
                 video_tasks: Arc::new(Mutex::new(HashMap::new())),
                 media_cache: Arc::new(Mutex::new(HashMap::new())),
+                pending: Arc::new(Mutex::new(HashMap::new())),
+                pending_seq: Arc::new(AtomicU64::new(0)),
             },
             events,
         )
@@ -293,17 +299,28 @@ fn emit_added_with_requested(
 }
 
 #[command]
+pub fn default_download_dir(state: State<'_, AppState>) -> String {
+    state.target_dir().to_string_lossy().to_string()
+}
+
+#[command]
 pub async fn add_download(
     url: String,
+    dir: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<u64, String> {
-    let id = add_download_inner(&state, &url).await?;
+    let context = DownloadContext {
+        url,
+        dir: dir.map(PathBuf::from).filter(|path| !path.as_os_str().is_empty()),
+        ..Default::default()
+    };
+    let id = add_download_with_context(&state, context).await?;
     emit_added(&state, &app, id as i64);
     Ok(id)
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DownloadContext {
     pub url: String,
     pub final_url: Option<String>,
@@ -312,6 +329,7 @@ pub struct DownloadContext {
     pub user_agent: Option<String>,
     pub cookies: Option<String>,
     pub headers: HashMap<String, String>,
+    pub dir: Option<PathBuf>,
 }
 
 pub async fn add_download_inner(state: &AppState, url: &str) -> Result<u64, String> {
@@ -371,7 +389,10 @@ pub async fn add_download_with_context(
         None => resolve_filename_with_headers(&fetch_url, &headers).await,
     };
     let category = category_of(&filename);
-    let dir = state.target_dir();
+    let dir = context
+        .dir
+        .clone()
+        .unwrap_or_else(|| state.target_dir());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let filename = unique_download_name(&dir, &filename);
@@ -446,6 +467,7 @@ pub fn unique_download_name(dir: &Path, filename: &str) -> String {
 #[command]
 pub async fn preview_download(
     url: String,
+    dir: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<DownloadPreview, String> {
     let url = url.trim().to_string();
@@ -453,7 +475,10 @@ pub async fn preview_download(
         return Err("Пустая ссылка".to_string());
     }
     let filename = resolve_filename(&url).await;
-    let dir = state.target_dir();
+    let dir = dir
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| state.target_dir());
     let exists = dir.join(&filename).exists();
     let suggested = unique_download_name(&dir, &filename);
     Ok(DownloadPreview {
@@ -468,6 +493,7 @@ pub async fn preview_download(
 pub async fn add_download_as(
     url: String,
     filename: String,
+    dir: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<u64, String> {
@@ -476,6 +502,7 @@ pub async fn add_download_as(
         DownloadContext {
             url,
             filename: Some(filename),
+            dir: dir.map(PathBuf::from).filter(|path| !path.as_os_str().is_empty()),
             ..Default::default()
         },
     )
@@ -506,20 +533,29 @@ fn has_crlf(value: &str) -> bool {
 #[command]
 pub async fn add_video(
     url: String,
+    dir: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<i64, String> {
-    add_video_inner(&state, &app, &url).await
+    add_video_inner(&state, &app, &url, dir.as_deref()).await
 }
 
-pub async fn add_video_inner(state: &AppState, app: &AppHandle, url: &str) -> Result<i64, String> {
+pub async fn add_video_inner(
+    state: &AppState,
+    app: &AppHandle,
+    url: &str,
+    dir: Option<&str>,
+) -> Result<i64, String> {
     let url = url.trim().to_string();
     if url.is_empty() {
         return Err("Пустая ссылка".to_string());
     }
 
     let id = VIDEO_ID_BASE + state.torrent_seq.fetch_add(1, Ordering::Relaxed) as i64;
-    let dir = state.target_dir();
+    let dir = dir
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| state.target_dir());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let filename = format!("video-{id}.mp4");
@@ -1417,6 +1453,139 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// A download held back until the user picks a folder in the add dialog.
+pub struct PendingAdd {
+    pub meta: PendingDownload,
+    payload: PendingPayload,
+}
+
+enum PendingPayload {
+    File(DownloadContext),
+    Torrent(String),
+    Video(String),
+}
+
+#[derive(Clone, Serialize)]
+pub struct PendingDownload {
+    pub id: u64,
+    pub kind: String,
+    pub url: String,
+    pub filename: String,
+    pub dir: String,
+}
+
+fn should_ask_path(state: &AppState) -> bool {
+    state.settings.lock().unwrap().ask_save_path
+}
+
+fn suggest_name(url: &str) -> String {
+    url.split(['?', '#'])
+        .next()
+        .and_then(|path| path.rsplit('/').next())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("download")
+        .to_string()
+}
+
+fn queue_pending(
+    state: &AppState,
+    app: &AppHandle,
+    payload: PendingPayload,
+    kind: &str,
+    url: &str,
+    filename: Option<String>,
+) {
+    let id = state.pending_seq.fetch_add(1, Ordering::Relaxed) + 1;
+    let meta = PendingDownload {
+        id,
+        kind: kind.to_string(),
+        url: url.to_string(),
+        filename: filename.unwrap_or_else(|| suggest_name(url)),
+        dir: state.target_dir().to_string_lossy().to_string(),
+    };
+    state
+        .pending
+        .lock()
+        .unwrap()
+        .insert(id, PendingAdd { meta: meta.clone(), payload });
+    let _ = app.emit("pending-download", meta);
+}
+
+#[command]
+pub fn pending_downloads(state: State<'_, AppState>) -> Vec<PendingDownload> {
+    let pending = state.pending.lock().unwrap();
+    let mut items: Vec<_> = pending.values().map(|add| add.meta.clone()).collect();
+    items.sort_by_key(|meta| meta.id);
+    items
+}
+
+#[command]
+pub fn cancel_pending(id: u64, state: State<'_, AppState>) {
+    state.pending.lock().unwrap().remove(&id);
+}
+
+#[command]
+pub async fn resolve_pending(
+    id: u64,
+    dir: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let Some(add) = state.pending.lock().unwrap().remove(&id) else {
+        return Err("Загрузка уже добавлена".to_string());
+    };
+    let dir = dir.trim().to_string();
+    if dir.is_empty() {
+        return Err("Выберите папку".to_string());
+    }
+    match add.payload {
+        PendingPayload::File(mut context) => {
+            context.dir = Some(PathBuf::from(&dir));
+            let id = add_download_with_context(&state, context).await?;
+            emit_added(&state, &app, id as i64);
+        }
+        PendingPayload::Torrent(source) => {
+            add_torrent_inner(&state, &app, &source, Some(&dir)).await?;
+        }
+        PendingPayload::Video(url) => {
+            add_video_inner(&state, &app, &url, Some(&dir)).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Queues a link that arrived from Windows (magnet, .torrent, dwv://) for the
+/// folder dialog, so a cold start behaves like a browser hand-off.
+pub fn queue_deep_link(state: &AppState, app: &AppHandle, target: &str, kind: Option<&str>) {
+    let kind = match kind {
+        Some("torrent") => "torrent",
+        Some("video") => "video",
+        Some("file") => "file",
+        _ => {
+            if is_torrent_source(target) {
+                "torrent"
+            } else {
+                "file"
+            }
+        }
+    };
+    let (payload, filename) = match kind {
+        "torrent" => (
+            PendingPayload::Torrent(target.to_string()),
+            Some(dwv_torrent::torrent_name(target)),
+        ),
+        "video" => (PendingPayload::Video(target.to_string()), None),
+        _ => (
+            PendingPayload::File(DownloadContext {
+                url: target.to_string(),
+                ..Default::default()
+            }),
+            None,
+        ),
+    };
+    queue_pending(state, app, payload, kind, target, filename);
+}
+
 /// Starts the local HTTP endpoint the browser extension posts links to.
 pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
     let handle = ipc_state.handle.clone();
@@ -1428,12 +1597,32 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
         });
 
         while let Some(request) = rx.recv().await {
+            // Any request from the extension means something is happening; the
+            // window may be hidden in the tray, so bring it up as feedback.
+            crate::tray::show_window(&state);
             match request {
                 dwv_ipc::Request::Add {
                     url,
                     filename,
                     referrer,
                 } => {
+                    if should_ask_path(&ipc_state) {
+                        let context = DownloadContext {
+                            url: url.clone(),
+                            filename: filename.clone(),
+                            referrer,
+                            ..Default::default()
+                        };
+                        queue_pending(
+                            &ipc_state,
+                            &state,
+                            PendingPayload::File(context),
+                            "file",
+                            &url,
+                            filename,
+                        );
+                        continue;
+                    }
                     let context = DownloadContext {
                         url,
                         filename,
@@ -1453,6 +1642,27 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                     user_agent,
                     headers,
                 } => {
+                    if should_ask_path(&ipc_state) {
+                        let context = DownloadContext {
+                            url: url.clone(),
+                            final_url,
+                            filename: filename.clone(),
+                            referrer,
+                            user_agent,
+                            cookies,
+                            headers,
+                            dir: None,
+                        };
+                        queue_pending(
+                            &ipc_state,
+                            &state,
+                            PendingPayload::File(context),
+                            "file",
+                            &url,
+                            filename,
+                        );
+                        continue;
+                    }
                     let requested = filename.clone();
                     let context = DownloadContext {
                         url,
@@ -1462,6 +1672,7 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                         user_agent,
                         cookies,
                         headers,
+                        dir: None,
                     };
                     if let Ok(id) = add_download_with_context(&ipc_state, context).await {
                         emit_added_with_requested(
@@ -1473,18 +1684,35 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                     }
                 }
                 dwv_ipc::Request::Torrent { source, .. } => {
-                    let _ = add_torrent_inner(&ipc_state, &state, &source).await;
+                    if should_ask_path(&ipc_state) {
+                        let name = dwv_torrent::torrent_name(&source);
+                        queue_pending(
+                            &ipc_state,
+                            &state,
+                            PendingPayload::Torrent(source.clone()),
+                            "torrent",
+                            &source,
+                            Some(name),
+                        );
+                        continue;
+                    }
+                    let _ = add_torrent_inner(&ipc_state, &state, &source, None).await;
                 }
                 dwv_ipc::Request::Video { url, .. } => {
-                    let _ = add_video_inner(&ipc_state, &state, &url).await;
-                }
-                dwv_ipc::Request::Ping => {
-                    if let Some(window) = state.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.unminimize();
-                        let _ = window.set_focus();
+                    if should_ask_path(&ipc_state) {
+                        queue_pending(
+                            &ipc_state,
+                            &state,
+                            PendingPayload::Video(url.clone()),
+                            "video",
+                            &url,
+                            None,
+                        );
+                        continue;
                     }
+                    let _ = add_video_inner(&ipc_state, &state, &url, None).await;
                 }
+                dwv_ipc::Request::Ping => {}
             }
         }
     });
@@ -1493,16 +1721,18 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
 #[command]
 pub async fn add_torrent(
     source: String,
+    dir: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<i64, String> {
-    add_torrent_inner(&state, &app, &source).await
+    add_torrent_inner(&state, &app, &source, dir.as_deref()).await
 }
 
 pub async fn add_torrent_inner(
     state: &AppState,
     app: &AppHandle,
     source: &str,
+    dir: Option<&str>,
 ) -> Result<i64, String> {
     let source = source.trim().to_string();
     if source.is_empty() {
@@ -1510,7 +1740,10 @@ pub async fn add_torrent_inner(
     }
 
     let settings = state.settings.lock().unwrap().clone();
-    let dir = state.target_dir();
+    let dir = dir
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| state.target_dir());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let id = TORRENT_ID_BASE + state.torrent_seq.fetch_add(1, Ordering::Relaxed) as i64;
@@ -2112,8 +2345,8 @@ pub async fn add_link(
         }
     };
     match kind {
-        "torrent" => add_torrent_inner(state, app, target).await,
-        "video" => add_video_inner(state, app, target).await,
+        "torrent" => add_torrent_inner(state, app, target, None).await,
+        "video" => add_video_inner(state, app, target, None).await,
         _ => {
             let id = add_download_inner(state, target).await?;
             emit_added(state, app, id as i64);

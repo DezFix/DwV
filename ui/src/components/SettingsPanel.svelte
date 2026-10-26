@@ -268,6 +268,17 @@
           />
           <p class="hint">{t('settings.auto_start_hint')}</p>
         </div>
+
+        <div class="row">
+          <span class="label">{t('settings.ask_save_path')}</span>
+          <input
+            type="checkbox"
+            class="switch"
+            checked={settingsStore.ask_save_path}
+            onchange={(e) => settingsStore.save({ ask_save_path: e.currentTarget.checked })}
+          />
+          <p class="hint">{t('settings.ask_save_path_hint')}</p>
+        </div>
       </section>
 
       <!-- ТОРРЕНТЫ -->

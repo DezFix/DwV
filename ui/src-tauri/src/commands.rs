@@ -1078,6 +1078,55 @@ pub async fn resume_download(
     Ok(())
 }
 
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+/// Deletes a file or a directory (torrents store the folder as the target),
+/// together with the engine's `.part`/`.ytdl` leftovers.
+fn delete_download_path(path: &Path) -> Result<(), String> {
+    let mut error = None;
+    for candidate in [
+        path.to_path_buf(),
+        with_suffix(path, ".part"),
+        with_suffix(path, ".ytdl"),
+    ] {
+        if candidate.as_os_str().is_empty() || !candidate.exists() {
+            continue;
+        }
+        let result = if candidate.is_dir() {
+            std::fs::remove_dir_all(&candidate)
+        } else {
+            std::fs::remove_file(&candidate)
+        };
+        if let Err(failure) = result
+            && error.is_none()
+        {
+            error = Some(format!("{}: {failure}", candidate.display()));
+        }
+    }
+    error.map_or(Ok(()), Err)
+}
+
+/// Windows keeps the handle briefly after the writer is killed, so retry.
+async fn delete_download_path_retry(path: &Path) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 0..10 {
+        match delete_download_path(path) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last = error;
+                if attempt < 9 {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+            }
+        }
+    }
+    Err(last)
+}
+
 #[command]
 pub async fn remove_download(
     id: i64,
@@ -1085,33 +1134,54 @@ pub async fn remove_download(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
+    let result = remove_download_inner(&state, id, delete_file).await;
+    let _ = app.emit("download-removed", serde_json::json!({ "id": id }));
+    result
+}
+
+pub async fn remove_download_inner(
+    state: &AppState,
+    id: i64,
+    delete_file: bool,
+) -> Result<(), String> {
     if id < 0 {
         // History row: delete the stored target too when the UI asks for it.
         if let Some(db) = &state.db {
-            if delete_file {
-                if let Ok(Some(stored)) = db.get(-id) {
-                    let target = &stored.target;
-                    if target.is_dir() {
-                        let _ = std::fs::remove_dir_all(target);
-                    } else if target.is_file() {
-                        let _ = std::fs::remove_file(target);
-                    }
-                }
+            let mut error = None;
+            if delete_file
+                && let Ok(Some(stored)) = db.get(-id)
+            {
+                error = delete_download_path_retry(&stored.target).await.err();
             }
             let _ = db.delete(-id);
+            return error.map_or(Ok(()), Err);
         }
-        let _ = app.emit("download-removed", serde_json::json!({ "id": id }));
         return Ok(());
     }
 
+    let entry = state.downloads.lock().unwrap().remove(&(id as u64));
+
     if is_torrent_id(id) {
-        let _ = state.torrents.remove(id, delete_file).await;
-        let entry = state.downloads.lock().unwrap().remove(&(id as u64));
-        if let (Some(db), Some(entry)) = (&state.db, &entry) {
-            let _ = db.delete(entry.db_id.unwrap_or(id));
+        let mut error = None;
+        if delete_file {
+            if let Err(removal) = state.torrents.remove(id, true).await {
+                error = Some(removal.to_string());
+            }
+            // A torrent unknown to the session (after a restart) keeps its files.
+            if let Some(path) = entry.as_ref().and_then(|item| item.file_path.as_deref()) {
+                if Path::new(path).exists()
+                    && let Err(fallback) = delete_download_path_retry(Path::new(path)).await
+                {
+                    error.get_or_insert(fallback);
+                }
+            }
+        } else {
+            let _ = state.torrents.remove(id, false).await;
         }
-        let _ = app.emit("download-removed", serde_json::json!({ "id": id }));
-        return Ok(());
+        if let (Some(db), Some(row)) = (&state.db, entry.as_ref().and_then(|item| item.db_id)) {
+            let _ = db.delete(row);
+        }
+        return error.map_or(Ok(()), Err);
     }
 
     if is_video_id(id) {
@@ -1122,13 +1192,26 @@ pub async fn remove_download(
         state.queue.cancel(id as u64);
     }
 
-    let entry = state.downloads.lock().unwrap().remove(&(id as u64));
-    if let Some(entry) = &entry {
-        if delete_file {
-            if let Some(path) = &entry.file_path {
-                let _ = std::fs::remove_file(path);
-            }
+    let mut file_path = entry.as_ref().and_then(|item| item.file_path.clone());
+    if file_path.is_none() {
+        // Videos only learn their path when they finish; fall back to history.
+        if let (Some(db), Some(row)) = (&state.db, entry.as_ref().and_then(|item| item.db_id)) {
+            file_path = db
+                .get(row)
+                .ok()
+                .flatten()
+                .map(|stored| stored.target.to_string_lossy().to_string());
         }
+    }
+
+    let mut error = None;
+    if delete_file
+        && let Some(path) = file_path.as_deref()
+    {
+        error = delete_download_path_retry(Path::new(path)).await.err();
+    }
+
+    if let Some(entry) = &entry {
         if let Some(db) = &state.db {
             if let Some(row) = entry.db_id {
                 let _ = db.delete(row);
@@ -1138,8 +1221,7 @@ pub async fn remove_download(
             }
         }
     }
-    let _ = app.emit("download-removed", serde_json::json!({ "id": id }));
-    Ok(())
+    error.map_or(Ok(()), Err)
 }
 
 #[command]

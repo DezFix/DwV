@@ -181,6 +181,9 @@
     const removed: number[] = [];
     let firstError: string | null = null;
 
+    // Closing the details panel stops the media probe, which can hold the file.
+    if (selectedId !== null && ids.includes(selectedId)) selectedId = null;
+
     for (const id of ids) {
       try {
         await downloadsStore.remove(id, deleteFiles);
@@ -199,6 +202,8 @@
 
     if (firstError) {
       showToast(`${t('delete.failed')}: ${firstError}`);
+      // The backend may have removed the row but failed on the file.
+      await downloadsStore.load();
     }
   }
 

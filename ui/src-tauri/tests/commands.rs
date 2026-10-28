@@ -1,10 +1,10 @@
 use dwv_app::commands::{
-    AppState, Category, DownloadContext, DownloadStatus, add_download_inner,
-    add_download_with_context, apply_event, category_of, download_limit_bps,
+    AppState, Category, DownloadContext, DownloadInfo, DownloadStatus, VIDEO_ID_BASE,
+    add_download_inner, add_download_with_context, apply_event, category_of, download_limit_bps,
     filename_from_disposition, from_url, infer_kind, is_torrent_source, parse_deep_link,
-    resolve_filename, unique_download_name, upload_limit_bps,
+    remove_download_inner, resolve_filename, unique_download_name, upload_limit_bps,
 };
-use dwv_core::QueueEvent;
+use dwv_core::{DownloadSpec, QueueEvent, State as DbState};
 use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
@@ -194,6 +194,81 @@ async fn downloads_into_the_chosen_folder() {
         "file was not saved into the chosen folder"
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn removing_a_video_with_files_deletes_the_file() {
+    let dir = std::env::temp_dir().join(format!("dwv-video-del-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (state, _events) = AppState::new(dir.join("settings.json"), dir.clone());
+
+    let path = dir.join("clip.mp4");
+    std::fs::write(&path, b"video").unwrap();
+    let part = dir.join("clip.mp4.part");
+    std::fs::write(&part, b"partial").unwrap();
+    let id = VIDEO_ID_BASE + 1;
+    let mut item = DownloadInfo::new(id as u64, path.clone());
+    item.kind = "video".to_string();
+    item.status = DownloadStatus::Completed;
+    item.file_path = Some(path.to_string_lossy().to_string());
+    state.downloads.lock().unwrap().insert(id as u64, item);
+
+    remove_download_inner(&state, id, true)
+        .await
+        .expect("remove video");
+
+    assert!(!path.exists(), "video file must be deleted");
+    assert!(!part.exists(), "leftover .part must be deleted");
+    assert!(state.downloads.lock().unwrap().get(&(id as u64)).is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn removing_only_the_item_keeps_the_video_file() {
+    let dir = std::env::temp_dir().join(format!("dwv-video-keep-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (state, _events) = AppState::new(dir.join("settings.json"), dir.clone());
+
+    let path = dir.join("clip.mp4");
+    std::fs::write(&path, b"video").unwrap();
+    let id = VIDEO_ID_BASE + 2;
+    let mut item = DownloadInfo::new(id as u64, path.clone());
+    item.kind = "video".to_string();
+    item.file_path = Some(path.to_string_lossy().to_string());
+    state.downloads.lock().unwrap().insert(id as u64, item);
+
+    remove_download_inner(&state, id, false)
+        .await
+        .expect("remove video");
+
+    assert!(path.exists(), "the file must stay when only the item is removed");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn removing_a_history_row_deletes_the_stored_file() {
+    let dir = std::env::temp_dir().join(format!("dwv-history-del-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (state, _events) = AppState::new(dir.join("settings.json"), dir.clone());
+
+    let path = dir.join("old-video.mp4");
+    std::fs::write(&path, b"video").unwrap();
+    let db = state.db.as_ref().expect("db").clone();
+    let row = db
+        .insert(&DownloadSpec::new("https://youtu.be/abc".to_string(), path.clone()))
+        .unwrap();
+    db.finish(row, DbState::Completed).unwrap();
+
+    remove_download_inner(&state, -row, true)
+        .await
+        .expect("remove history row");
+
+    assert!(!path.exists(), "history file must be deleted");
+    assert!(db.get(row).unwrap().is_none(), "history row must be gone");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

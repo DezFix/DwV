@@ -5,24 +5,30 @@
   <title>DwV</title>
   <style>
     :root {
-      --bg: #ffffff;
-      --bg-soft: #f4f5f7;
-      --border: #e2e5ea;
-      --text: #1b1f26;
-      --muted: #6b7280;
+      --bg: #eef0f4;
+      --bg-soft: #ffffff;
+      --bg-tertiary: #e6e9ee;
+      --border: #e0e4ea;
+      --text: #1c2028;
+      --muted: #8a929e;
       --accent: #2d7dd2;
-      --ok: #16a34a;
-      --bad: #dc2626;
+      --accent-hover: #1f66b8;
+      --accent-soft: #e5f0fb;
+      --ok: #2ea043;
+      --bad: #cf222e;
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #1c1f26;
-        --bg-soft: #24272f;
-        --border: #31353f;
+        --bg: #14171d;
+        --bg-soft: #1f242c;
+        --bg-tertiary: #262b35;
+        --border: #2c323d;
         --text: #e6e9ef;
-        --muted: #8a929e;
+        --muted: #6f7887;
         --accent: #4a9eff;
+        --accent-hover: #6bb0ff;
+        --accent-soft: rgba(74, 158, 255, 0.16);
         --ok: #3fb950;
         --bad: #f85149;
       }
@@ -31,17 +37,18 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      width: 340px;
+      width: 440px;
       background: var(--bg);
       color: var(--text);
       font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      overflow-x: hidden;
     }
 
     header {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 11px 14px;
+      gap: 9px;
+      padding: 12px 14px;
       border-bottom: 1px solid var(--border);
     }
 
@@ -139,10 +146,11 @@
       background: var(--bg-soft);
       color: var(--text);
       padding: 6px 10px;
-      transition: background 0.15s;
+      max-width: 100%;
+      transition: background 0.15s, border-color 0.15s;
     }
 
-    button:hover:not(:disabled) { background: var(--border); }
+    button:hover:not(:disabled) { background: var(--bg-tertiary); }
     button:disabled { opacity: 0.45; cursor: default; }
 
     button.small { padding: 3px 8px; font-size: 11.5px; }
@@ -153,6 +161,7 @@
       color: #fff;
       font-weight: 600;
       width: 100%;
+      max-width: 100%;
     }
 
     .primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
@@ -161,8 +170,10 @@
       display: flex;
       flex-direction: column;
       gap: 7px;
-      max-height: 236px;
+      max-height: 280px;
       overflow-y: auto;
+      scrollbar-width: thin;
+      padding-right: 2px;
     }
 
     .video {
@@ -175,9 +186,12 @@
     .video-name {
       font-size: 12.5px;
       font-weight: 600;
-      white-space: nowrap;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .video-meta { font-size: 11px; color: var(--muted); margin: 1px 0 7px; }
@@ -207,8 +221,8 @@
 
     .preview {
       display: flex;
-      gap: 9px;
-      padding: 8px;
+      gap: 10px;
+      padding: 9px;
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--bg-soft);
@@ -216,8 +230,8 @@
 
     .preview-thumb {
       position: relative;
-      width: 104px;
-      height: 59px;
+      width: 116px;
+      height: 65px;
       border-radius: 6px;
       overflow: hidden;
       background: linear-gradient(135deg, #2b3440, #1b222c);

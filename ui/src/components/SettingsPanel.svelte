@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { getVersion } from '@tauri-apps/api/app';
   import { settingsStore } from '../stores/settings.svelte.ts';
   import { deletePrefs, type DeleteMode } from '../stores/deletePrefs.svelte.ts';
   import { setLocale, t, type LocaleSetting } from '../i18n/index.svelte.ts';
@@ -32,6 +34,13 @@
   let matchedSections = $state<Set<string>>(new Set());
   let hasQueryMatch = $state(true);
   let kofiError = $state<string | null>(null);
+  let appVersion = $state('');
+
+  onMount(() => {
+    getVersion()
+      .then(version => (appVersion = version))
+      .catch(() => {});
+  });
 
   async function openKofi() {
     kofiError = null;
@@ -559,26 +568,29 @@
           </div>
         </div>
 
-        <div class="row">
-          <span class="label">{t('settings.about')}</span>
-          <div class="about">
-            <p><strong>DwV Download Manager</strong></p>
-            <p>0.1.6 · Rust + Tauri + Svelte 5</p>
-            <p>Copyright © DwV contributors · GPL-3.0-or-later</p>
-          </div>
-        </div>
-
-        <div class="row">
-          <span class="label">Ko-fi</span>
-          <div class="inline">
+        <div class="row kofi-row">
+          <div class="kofi">
+            <div class="kofi-copy">
+              <span class="kofi-title">{t('kofi.support')}</span>
+              <span class="kofi-sub">{t('kofi.settings_hint')}</span>
+            </div>
             <button class="btn kofi-btn" onclick={openKofi}>
               <Icon name="heart" size={15} />
-              <span>{t('kofi.support')}</span>
+              <span>{t('kofi.button')}</span>
             </button>
           </div>
           {#if kofiError}
             <p class="hint error">{kofiError}</p>
           {/if}
+        </div>
+
+        <div class="row">
+          <span class="label">{t('settings.about')}</span>
+          <div class="about">
+            <p><strong>DwV Download Manager</strong></p>
+            <p>{appVersion || '—'} · Rust + Tauri + Svelte 5</p>
+            <p>Copyright © DwV contributors · GPL-3.0-or-later</p>
+          </div>
         </div>
       </section>
 
@@ -848,6 +860,59 @@
 
   .about p {
     margin: 0 0 2px;
+  }
+
+  .kofi-row {
+    grid-template-columns: 1fr;
+    padding: 6px 0;
+  }
+
+  .kofi-row .hint {
+    grid-column: 1;
+  }
+
+  .kofi {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, #ff5e5b 38%, var(--border-color));
+    border-radius: var(--radius-md);
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, #ff5e5b 14%, var(--bg-elevated)),
+      color-mix(in srgb, #ffb86b 9%, var(--bg-elevated))
+    );
+  }
+
+  .kofi-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .kofi-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .kofi-sub {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+
+  .kofi-btn {
+    flex-shrink: 0;
+    border-color: color-mix(in srgb, #ff5e5b 45%, transparent);
+    color: #ff5e5b;
+    font-weight: 600;
+  }
+
+  .kofi-btn:hover {
+    background: color-mix(in srgb, #ff5e5b 12%, transparent);
   }
 
   .no-results {

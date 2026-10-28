@@ -49,6 +49,7 @@
   "kofi.banner": "DwV is free. Support the project on Ko-fi",
   "kofi.button": "Ko-fi",
   "kofi.support": "Support the project on Ko-fi",
+  "kofi.settings_hint": "DwV is free and ad-free. If it saves you time, you can buy the author a coffee.",
   "kofi.error": "Could not open the link",
   "settings.search": "Search settings...",
   "speed.unlimited": "Unlimited",

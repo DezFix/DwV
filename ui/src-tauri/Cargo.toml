@@ -1,6 +1,6 @@
 [package]
 name = "dwv"
-version = "0.1.8"
+version = "0.1.9"
 description = "DwV Download Manager"
 authors = ["DwV Team"]
 license = "MIT"

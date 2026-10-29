@@ -1,6 +1,6 @@
 const IPC_URL = "http://127.0.0.1:41763/";
 const TIMEOUT_MS = 3000;
-const HANDOFF_TTL_MS = 30000;
+const HANDOFF_TTL_MS = 5000;
 const MAX_TRACKED = 200;
 const RETRY_MS = 500;
 const RETRY_WINDOW_MS = 20000;
@@ -549,6 +549,8 @@ async function firefoxHandOff(details, response) {
     });
   const reply = await handOff(message);
   if (!reply.ok) {
+    // Let a retry of the same link be captured again.
+    handedOff.delete(details.url);
     await browserFallback(
       details.url,
       torrent ? torrentFilename(details.url) : undefined,
@@ -586,6 +588,7 @@ async function handleFirefoxCreated(item, url, context, response) {
     });
   const reply = await handOff(message);
   if (!reply.ok) {
+    handedOff.delete(url);
     await browserFallback(url, torrent ? torrentFilename(url) : undefined);
   }
 }
@@ -739,6 +742,13 @@ if (IS_CHROME) {
 } else {
   api.webRequest.onSendHeaders.addListener(onSendHeaders, FILTER, ["requestHeaders"]);
   api.webRequest.onHeadersReceived.addListener(recordMedia, FILTER, ["responseHeaders"]);
+  api.webRequest.onHeadersReceived.addListener(
+    (details) => {
+      recordResponse(details);
+    },
+    FILTER,
+    ["responseHeaders"],
+  );
   api.webRequest.onHeadersReceived.addListener(
     onHeadersReceivedFirefox,
     { urls: FILTER.urls, types: ["main_frame"] },

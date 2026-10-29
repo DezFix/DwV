@@ -7,7 +7,8 @@ use std::time::Duration;
 use librqbit::api::TorrentIdOrHash;
 use librqbit::limits::LimitsConfig;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, DhtSessionConfig, Session, SessionOptions, TorrentStatsState,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, DhtSessionConfig, Session, SessionOptions,
+    TorrentStatsState,
 };
 
 type ManagedTorrentHandle = Arc<librqbit::ManagedTorrent>;
@@ -61,6 +62,30 @@ pub enum TorrentEvent {
 }
 
 #[derive(Debug, Clone)]
+pub struct TorrentFile {
+    pub index: usize,
+    /// Path inside the torrent, with the platform separator.
+    pub path: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct TorrentMeta {
+    pub info_hash: String,
+    pub name: String,
+    pub total_size: u64,
+    pub files: Vec<TorrentFile>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TorrentFileProgress {
+    pub index: usize,
+    pub path: String,
+    pub size: u64,
+    pub downloaded: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct TorrentPeer {
     pub address: String,
     pub state: String,
@@ -95,6 +120,7 @@ struct Inner {
     session: tokio::sync::OnceCell<Arc<Session>>,
     torrents: Mutex<HashMap<i64, ManagedTorrentHandle>>,
     tasks: Mutex<HashMap<i64, tokio::task::JoinHandle<()>>>,
+    inspected: Mutex<HashMap<String, TorrentMeta>>,
 }
 
 /// Owns the single librqbit session for the whole app lifetime.
@@ -112,6 +138,7 @@ impl TorrentManager {
                 session: tokio::sync::OnceCell::new(),
                 torrents: Mutex::new(HashMap::new()),
                 tasks: Mutex::new(HashMap::new()),
+                inspected: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -176,18 +203,16 @@ impl TorrentManager {
         paused: bool,
         seed_after_complete: bool,
         fallback_name: String,
+        only_files: Option<Vec<usize>>,
         on_event: EventSink,
     ) -> Result<(), Error> {
         let session = self.session().await?;
-        let add = if Path::new(source).is_file() {
-            AddTorrent::from_local_filename(source).map_err(|e| Error::Torrent(e.to_string()))?
-        } else {
-            AddTorrent::from_url(source.to_string())
-        };
+        let add = add_torrent_request(source)?;
         let options = AddTorrentOptions {
             paused,
             output_folder: Some(dir.to_string_lossy().into_owned()),
             overwrite: true,
+            only_files,
             ..Default::default()
         };
         let handle = session
@@ -215,6 +240,71 @@ impl TorrentManager {
         Ok(())
     }
 
+    /// Reads the file list without starting the download (`list_only`).
+    /// Magnets wait for metadata here, so callers need a timeout.
+    pub async fn inspect(&self, source: &str, dir: &Path) -> Result<TorrentMeta, Error> {
+        let source = source.trim();
+        if let Some(cached) = self.inner.inspected.lock().unwrap().get(source).cloned() {
+            return Ok(cached);
+        }
+        let session = self.session().await?;
+        let add = add_torrent_request(source)?;
+        let options = AddTorrentOptions {
+            list_only: true,
+            output_folder: Some(dir.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let meta = match session
+            .add_torrent(add, Some(options))
+            .await
+            .map_err(|e| Error::Torrent(e.to_string()))?
+        {
+            AddTorrentResponse::ListOnly(list) => {
+                let name = list
+                    .info
+                    .name()
+                    .map(|name| name.into_owned())
+                    .unwrap_or_default();
+                meta_from_info(list.info_hash.as_string(), name, &list.info)
+            }
+            AddTorrentResponse::AlreadyManaged(_, handle)
+            | AddTorrentResponse::Added(_, handle) => {
+                meta_from_handle(&handle).ok_or(Error::NoHandle)?
+            }
+        };
+        self.inner
+            .inspected
+            .lock()
+            .unwrap()
+            .insert(source.to_string(), meta.clone());
+        Ok(meta)
+    }
+
+    /// Per-file progress for the details panel. Empty when the torrent is gone.
+    pub fn files(&self, id: i64) -> Vec<TorrentFileProgress> {
+        let Some(handle) = self.handle(id) else {
+            return Vec::new();
+        };
+        let stats = handle.stats();
+        let Some(meta) = meta_from_handle(&handle) else {
+            return Vec::new();
+        };
+        meta.files
+            .into_iter()
+            .map(|file| TorrentFileProgress {
+                downloaded: stats
+                    .file_progress
+                    .get(file.index)
+                    .copied()
+                    .unwrap_or(0)
+                    .min(file.size),
+                index: file.index,
+                path: file.path,
+                size: file.size,
+            })
+            .collect()
+    }
+
     pub async fn pause(&self, id: i64) -> Result<(), Error> {
         let Some(handle) = self.handle(id) else {
             return Ok(());
@@ -231,7 +321,9 @@ impl TorrentManager {
 
     pub async fn resume(&self, id: i64) -> Result<(), Error> {
         let Some(handle) = self.handle(id) else {
-            return Ok(());
+            return Err(Error::Torrent(
+                "торрент не найден после перезапуска".to_string(),
+            ));
         };
         if !handle.is_paused() {
             return Ok(());
@@ -308,6 +400,51 @@ impl TorrentManager {
     }
 }
 
+fn add_torrent_request(source: &str) -> Result<AddTorrent<'_>, Error> {
+    if Path::new(source).is_file() {
+        AddTorrent::from_local_filename(source).map_err(|e| Error::Torrent(e.to_string()))
+    } else {
+        Ok(AddTorrent::from_url(source.to_string()))
+    }
+}
+
+fn meta_from_info<B: AsRef<[u8]>>(
+    info_hash: String,
+    name: String,
+    info: &librqbit::ValidatedTorrentMetaV1Info<B>,
+) -> TorrentMeta {
+    let files: Vec<TorrentFile> = info
+        .iter_file_details()
+        .enumerate()
+        .map(|(index, details)| TorrentFile {
+            index,
+            path: details.filename.to_string(),
+            size: details.len,
+        })
+        .collect();
+    let total_size = files.iter().map(|file| file.size).sum();
+    TorrentMeta {
+        info_hash,
+        name,
+        total_size,
+        files,
+    }
+}
+
+fn meta_from_handle(handle: &ManagedTorrentHandle) -> Option<TorrentMeta> {
+    handle
+        .with_metadata(|metadata| {
+            let name = metadata
+                .info
+                .name()
+                .map(|name| name.into_owned())
+                .or_else(|| handle.name())
+                .unwrap_or_default();
+            meta_from_info(handle.info_hash().as_string(), name, &metadata.info)
+        })
+        .ok()
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn poll(
     id: i64,
@@ -336,9 +473,15 @@ async fn poll(
                 let _ = session.pause(&handle).await;
             }
             let name = handle.name().unwrap_or(fallback_name);
+            let path = match meta_from_handle(&handle) {
+                Some(meta) if meta.files.len() == 1 => {
+                    handle.output_folder().join(&meta.files[0].path)
+                }
+                _ => handle.output_folder().join(name),
+            };
             on_event(TorrentEvent::Complete {
                 id,
-                path: handle.output_folder().join(name),
+                path,
                 total: stats.total_bytes,
             });
             return;
@@ -500,11 +643,7 @@ pub async fn download_torrent(
     let session = Session::new(dir.to_path_buf())
         .await
         .map_err(|e| Error::Torrent(e.to_string()))?;
-    let add = if Path::new(source).is_file() {
-        AddTorrent::from_local_filename(source).map_err(|e| Error::Torrent(e.to_string()))?
-    } else {
-        AddTorrent::from_url(source)
-    };
+    let add = add_torrent_request(source)?;
     let handle = session
         .add_torrent(add, None)
         .await

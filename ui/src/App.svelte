@@ -14,6 +14,7 @@
   import ConfirmDeleteDialog from './components/ConfirmDeleteDialog.svelte';
   import DuplicateDialog from './components/DuplicateDialog.svelte';
   import AddDownloadDialog from './components/AddDownloadDialog.svelte';
+  import TorrentDialog from './components/TorrentDialog.svelte';
   import UpdateDialog from './components/UpdateDialog.svelte';
   import KofiBanner from './components/KofiBanner.svelte';
   import Icon from './components/Icon.svelte';
@@ -144,6 +145,31 @@
 
   function toggleSelectAll() {
     checkedIds = allVisibleChecked ? [] : visible.map(item => item.id);
+  }
+
+  const someVisibleChecked = $derived(
+    visible.some(item => checkedIds.includes(item.id)),
+  );
+
+  function setSort(next: SortBy) {
+    if (sortBy === next) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      return;
+    }
+    sortBy = next;
+    sortDir = next === 'name' ? 'asc' : 'desc';
+  }
+
+  async function pauseSelected() {
+    for (const id of [...checkedIds]) {
+      await downloadsStore.pause(id);
+    }
+  }
+
+  async function resumeSelected() {
+    for (const id of [...checkedIds]) {
+      await downloadsStore.resume(id);
+    }
   }
 
   function handleGlobalKeydown(event: KeyboardEvent) {
@@ -380,6 +406,25 @@
     }
 
     await startAdd(value, kind);
+  }
+
+  async function confirmTorrent(dir: string, onlyFiles: number[] | null, hide: boolean) {
+    const request = addQueue[0];
+    if (!request) return;
+    addQueue = addQueue.slice(1);
+    if (hide) await settingsStore.save({ ask_save_path: false });
+
+    try {
+      if (request.pendingId !== undefined) {
+        await invoke('resolve_pending', { id: request.pendingId, dir, onlyFiles });
+      } else {
+        await downloadsStore.addTorrent(request.url, dir, onlyFiles);
+      }
+      mode = 'files';
+      query = '';
+    } catch (error) {
+      showToast(`${t('add.failed')}: ${String(error)}`);
+    }
   }
 
   async function confirmAdd(dir: string, hide: boolean, quality: string) {
@@ -629,50 +674,42 @@
               <span class="crumb-title">
                 {category ? t(`type.${category}`) : t(`filter.${view}`)}
               </span>
-              <span class="crumb-count">{downloadsStore.items.length}</span>
-              {#if visible.length > 0}
-                <button class="select-all" onclick={toggleSelectAll} title={t('bulk.select_all_hint')}>
-                  {allVisibleChecked ? t('bulk.clear') : t('bulk.select_all')}
-                </button>
+              <span class="crumb-count">{visible.length}</span>
+              {#if checkedIds.length > 0}
+                <span class="selected-count">{t('bulk.selected')}: {checkedIds.length}</span>
               {/if}
             </div>
 
-            <div class="sort-group">
-              <select bind:value={sortBy} class="sort-select" aria-label="Sort">
-                <option value="added">{t('detail.added')}</option>
-                <option value="name">{t('header.name')}</option>
-                <option value="progress">%</option>
-                <option value="speed">{t('header.speed')}</option>
-                <option value="size">{t('header.size')}</option>
-              </select>
+            <div class="list-actions">
               <button
-                class="sort-dir"
-                onclick={() => (sortDir = sortDir === 'asc' ? 'desc' : 'asc')}
-                title={sortDir === 'asc' ? '↑' : '↓'}
-                aria-label="Sort direction"
+                class="list-action"
+                disabled={checkedIds.length === 0}
+                onclick={resumeSelected}
+                title={t('actions.resume')}
               >
-                {#if sortDir === 'asc'}
-                  <Icon name="chevronUp" size={14} />
-                {:else}
-                  <Icon name="chevronDown" size={14} />
-                {/if}
+                <Icon name="play" size={13} />
+                <span>{t('actions.resume')}</span>
+              </button>
+              <button
+                class="list-action"
+                disabled={checkedIds.length === 0}
+                onclick={pauseSelected}
+                title={t('actions.pause')}
+              >
+                <Icon name="pause" size={13} />
+                <span>{t('actions.pause')}</span>
+              </button>
+              <button
+                class="list-action danger"
+                disabled={checkedIds.length === 0}
+                onclick={() => requestRemoveMany(checkedIds)}
+                title={t('actions.remove')}
+              >
+                <Icon name="close" size={13} />
+                <span>{t('actions.remove')}</span>
               </button>
             </div>
           </div>
-
-          {#if checkedIds.length > 0}
-            <div class="bulk-bar">
-              <span class="bulk-count">{t('bulk.selected')}: {checkedIds.length}</span>
-              <div class="bulk-actions">
-                <button class="bulk-btn danger" onclick={() => requestRemoveMany(checkedIds)}>
-                  {t('bulk.delete')}
-                </button>
-                <button class="bulk-btn" onclick={() => (checkedIds = [])}>
-                  {t('bulk.clear')}
-                </button>
-              </div>
-            </div>
-          {/if}
 
           {#if showKofi}
             <KofiBanner onClose={dismissKofi} onError={showToast} />
@@ -686,6 +723,10 @@
             {query}
             {selectedId}
             {checkedIds}
+            allChecked={allVisibleChecked}
+            someChecked={someVisibleChecked}
+            onSort={setSort}
+            onToggleAll={toggleSelectAll}
             onSelect={handleRowClick}
             onCheck={toggleCheck}
             onRemove={requestRemove}
@@ -721,15 +762,26 @@
   />
 
   {#key addQueue[0]?.key}
-    <AddDownloadDialog
-      open={addQueue.length > 0 && duplicate === null}
-      filename={addQueue[0]?.filename ?? ''}
-      url={addQueue[0]?.url ?? ''}
-      kind={addQueue[0]?.kind ?? 'file'}
-      dir={addQueue[0]?.dir ?? ''}
-      onCancel={cancelAdd}
-      onConfirm={confirmAdd}
-    />
+    {#if addQueue[0]?.kind === 'torrent'}
+      <TorrentDialog
+        open={addQueue.length > 0 && duplicate === null}
+        source={addQueue[0]?.url ?? ''}
+        filename={addQueue[0]?.filename ?? ''}
+        dir={addQueue[0]?.dir ?? ''}
+        onCancel={cancelAdd}
+        onConfirm={confirmTorrent}
+      />
+    {:else}
+      <AddDownloadDialog
+        open={addQueue.length > 0 && duplicate === null}
+        filename={addQueue[0]?.filename ?? ''}
+        url={addQueue[0]?.url ?? ''}
+        kind={addQueue[0]?.kind ?? 'file'}
+        dir={addQueue[0]?.dir ?? ''}
+        onCancel={cancelAdd}
+        onConfirm={confirmAdd}
+      />
+    {/if}
   {/key}
 
   <UpdateDialog
@@ -801,63 +853,6 @@
     gap: 8px;
   }
 
-  .bulk-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 6px 12px;
-    background: var(--accent-soft);
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
-    animation: bulk-in 0.16s ease;
-  }
-
-  @keyframes bulk-in {
-    from { opacity: 0; transform: translateY(-6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .bulk-count {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--accent);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .bulk-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .bulk-btn {
-    padding: 4px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
-  }
-
-  .bulk-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-  }
-
-  .bulk-btn.danger {
-    color: var(--error);
-    border-color: color-mix(in srgb, var(--error) 35%, var(--border-color));
-  }
-
-  .bulk-btn.danger:hover {
-    background: color-mix(in srgb, var(--error) 10%, transparent);
-    color: var(--error);
-  }
-
   .crumb-title {
     font-size: 13px;
     font-weight: 600;
@@ -870,58 +865,61 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .select-all {
-    margin-left: 6px;
-    padding: 2px 8px;
-    border: 1px solid var(--border-color);
+  .selected-count {
+    margin-left: 4px;
+    padding: 1px 8px;
     border-radius: 999px;
-    background: transparent;
-    color: var(--text-secondary);
+    background: var(--accent-soft);
+    color: var(--accent);
     font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
-  .select-all:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border-color: var(--accent);
-  }
-
-  .sort-group {
+  .list-actions {
     display: flex;
     align-items: center;
     gap: 4px;
   }
 
-  .sort-select {
-    padding: 4px 8px;
+  .list-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
-    background: var(--bg-primary);
+    background: transparent;
     color: var(--text-secondary);
     font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
-    outline: none;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
   }
 
-  .sort-dir {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    background: var(--bg-primary);
-    color: var(--text-secondary);
-    cursor: pointer;
-  }
-
-  .sort-dir:hover {
+  .list-action:hover:not(:disabled) {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+  }
+
+  .list-action:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .list-action.danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--error) 10%, transparent);
+    border-color: color-mix(in srgb, var(--error) 35%, var(--border-color));
+    color: var(--error);
+  }
+
+  @media (max-width: 860px) {
+    .list-action span {
+      display: none;
+    }
+    .list-action {
+      padding: 5px 7px;
+    }
   }
 
   .toast {

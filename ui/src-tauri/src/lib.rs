@@ -130,6 +130,7 @@ pub fn run() {
             commands::add_download_as,
             commands::add_video,
             commands::add_torrent,
+            commands::inspect_torrent,
             commands::pending_downloads,
             commands::resolve_pending,
             commands::cancel_pending,

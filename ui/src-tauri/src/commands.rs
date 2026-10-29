@@ -868,6 +868,17 @@ async fn build_details(state: &AppState, id: i64) -> Result<DownloadDetails, Str
                 },
                 peers_live: details.peers_live,
                 peers_seen: details.peers_seen,
+                files: state
+                    .torrents
+                    .files(id)
+                    .into_iter()
+                    .map(|file| TorrentFileInfo {
+                        index: file.index,
+                        path: file.path,
+                        size: file.size,
+                        downloaded: file.downloaded,
+                    })
+                    .collect(),
             });
         }
     }
@@ -1631,6 +1642,7 @@ pub async fn resolve_pending(
     id: u64,
     dir: String,
     quality: Option<String>,
+    only_files: Option<Vec<usize>>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
@@ -1648,7 +1660,7 @@ pub async fn resolve_pending(
             emit_added(&state, &app, id as i64);
         }
         PendingPayload::Torrent(source) => {
-            add_torrent_inner(&state, &app, &source, Some(&dir)).await?;
+            add_torrent_inner(&state, &app, &source, Some(&dir), only_files).await?;
         }
         PendingPayload::Video(url) => {
             add_video_inner(&state, &app, &url, Some(&dir), quality.as_deref()).await?;
@@ -1799,7 +1811,7 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                         );
                         continue;
                     }
-                    let _ = add_torrent_inner(&ipc_state, &state, &source, None).await;
+                    let _ = add_torrent_inner(&ipc_state, &state, &source, None, None).await;
                 }
                 dwv_ipc::Request::Video { url, .. } => {
                     if should_ask_path(&ipc_state) {
@@ -1825,10 +1837,69 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
 pub async fn add_torrent(
     source: String,
     dir: Option<String>,
+    only_files: Option<Vec<usize>>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<i64, String> {
-    add_torrent_inner(&state, &app, &source, dir.as_deref()).await
+    add_torrent_inner(&state, &app, &source, dir.as_deref(), only_files).await
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TorrentFileInfo {
+    pub index: usize,
+    pub path: String,
+    pub size: u64,
+    pub downloaded: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TorrentMetaInfo {
+    pub info_hash: String,
+    pub name: String,
+    pub total_size: u64,
+    pub files: Vec<TorrentFileInfo>,
+}
+
+#[command]
+pub async fn inspect_torrent(
+    source: String,
+    dir: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<TorrentMetaInfo, String> {
+    let source = source.trim().to_string();
+    if source.is_empty() {
+        return Err("Пустая ссылка".to_string());
+    }
+    let dir = dir
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| state.target_dir());
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    // Magnets wait for metadata from peers; don't keep the dialog spinning forever.
+    let inspected = tokio::time::timeout(
+        Duration::from_secs(40),
+        state.torrents.inspect(&source, &dir),
+    )
+    .await
+    .map_err(|_| "Не удалось получить список файлов: трекер не ответил".to_string())?
+    .map_err(|error| error.to_string())?;
+
+    Ok(TorrentMetaInfo {
+        info_hash: inspected.info_hash,
+        name: inspected.name,
+        total_size: inspected.total_size,
+        files: inspected
+            .files
+            .into_iter()
+            .map(|file| TorrentFileInfo {
+                index: file.index,
+                path: file.path,
+                size: file.size,
+                downloaded: 0,
+            })
+            .collect(),
+    })
 }
 
 pub async fn add_torrent_inner(
@@ -1836,6 +1907,7 @@ pub async fn add_torrent_inner(
     app: &AppHandle,
     source: &str,
     dir: Option<&str>,
+    only_files: Option<Vec<usize>>,
 ) -> Result<i64, String> {
     let source = source.trim().to_string();
     if source.is_empty() {
@@ -1848,6 +1920,10 @@ pub async fn add_torrent_inner(
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| state.target_dir());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    if only_files.as_ref().is_some_and(|files| files.is_empty()) {
+        return Err("Не выбран ни один файл".to_string());
+    }
 
     let id = TORRENT_ID_BASE + state.torrent_seq.fetch_add(1, Ordering::Relaxed) as i64;
     let name = dwv_torrent::torrent_name(&source);
@@ -1912,6 +1988,7 @@ pub async fn add_torrent_inner(
             paused,
             settings.torrent_seed_after_complete,
             name,
+            only_files,
             sink,
         )
         .await
@@ -2046,6 +2123,7 @@ pub fn apply_torrent_event(state: &AppState, app: &AppHandle, event: TorrentEven
             };
             if let Some((payload, db_id, downloaded)) = payload {
                 if let (Some(db), Some(row)) = (&state.db, db_id) {
+                    let _ = db.set_target(row, &path);
                     let _ = db.set_progress(row, downloaded, Some(downloaded));
                     let _ = db.finish(row, DbState::Completed);
                 }
@@ -2308,6 +2386,7 @@ pub struct TorrentInfo {
     pub ratio: f64,
     pub peers_live: u32,
     pub peers_seen: u32,
+    pub files: Vec<TorrentFileInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2448,7 +2527,7 @@ pub async fn add_link(
         }
     };
     match kind {
-        "torrent" => add_torrent_inner(state, app, target, None).await,
+        "torrent" => add_torrent_inner(state, app, target, None, None).await,
         "video" => add_video_inner(state, app, target, None, None).await,
         _ => {
             let id = add_download_inner(state, target).await?;

@@ -168,6 +168,17 @@ impl Database {
         Ok(())
     }
 
+    /// Rewrites the target after the engine learns the real path (single-file
+    /// torrents, renamed videos).
+    pub fn set_target(&self, id: i64, target: &Path) -> Result<(), Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET target = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, target.to_string_lossy(), now_secs()],
+        )?;
+        Ok(())
+    }
+
     pub fn delete(&self, id: i64) -> Result<(), Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM downloads WHERE id = ?1", params![id])?;

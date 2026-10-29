@@ -1,8 +1,9 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { type DownloadItem } from '../stores/downloads.svelte.ts';
-  import { t } from '../i18n/index.svelte.ts';
+  import { locale, t } from '../i18n/index.svelte.ts';
   import Icon from './Icon.svelte';
+  import type { IconName } from '../assets/icons';
 
   export type SelectEvent = { ctrlKey: boolean; shiftKey: boolean; metaKey: boolean };
 
@@ -33,6 +34,7 @@
   }
 
   function formatSize(bytes: number): string {
+    if (bytes <= 0) return '—';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -46,6 +48,36 @@
     return `${Math.floor(seconds / 3600)} ч ${Math.floor((seconds % 3600) / 60)} мин`;
   }
 
+  function formatAdded(seconds: number): string {
+    if (!seconds) return '—';
+    const date = new Date(seconds * 1000);
+    const today = new Date();
+    const sameDay = date.toDateString() === today.toDateString();
+    const formatter = new Intl.DateTimeFormat(locale.current === 'ru' ? 'ru-RU' : 'en-US', {
+      day: '2-digit',
+      month: '2-digit',
+      ...(sameDay ? { hour: '2-digit', minute: '2-digit' } : {}),
+    });
+    return formatter.format(date);
+  }
+
+  function hostOf(url: string): string {
+    try {
+      return new URL(url).hostname.replace(/^www\./i, '');
+    } catch {
+      return '';
+    }
+  }
+
+  const metaLine = $derived(
+    [
+      item.kind === 'torrent' ? 'BitTorrent' : hostOf(item.url),
+      t(`type.${item.category}`),
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  );
+
   function statusLabel(status: string): string {
     switch (status) {
       case 'downloading': return t('status.downloading');
@@ -55,6 +87,17 @@
       case 'pending': return t('status.queued');
       case 'cancelled': return t('status.cancelled');
       default: return status;
+    }
+  }
+
+  function statusIcon(status: string): IconName {
+    switch (status) {
+      case 'downloading': return 'download';
+      case 'completed': return 'check';
+      case 'error': return 'close';
+      case 'paused': return 'pause';
+      case 'pending': return 'clock';
+      default: return 'close';
     }
   }
 
@@ -71,20 +114,23 @@
   const ext = $derived(item.filename.split('.').pop()?.toUpperCase() ?? '');
 
   async function handlePause() {
+    closeContextMenu();
     await invoke('pause_download', { id: item.id });
   }
 
   async function handleResume() {
+    closeContextMenu();
     await invoke('resume_download', { id: item.id });
   }
 
-  async function handleRemove() {
+  function handleRemove() {
     closeContextMenu();
     onRemove(item.id);
   }
 
   async function handleOpenFile() {
     if (!item.file_path) return;
+    closeContextMenu();
     try {
       await invoke('open_file', { path: item.file_path });
     } catch (error) {
@@ -94,6 +140,7 @@
 
   async function handleShowInFolder() {
     if (!item.file_path) return;
+    closeContextMenu();
     try {
       await invoke('show_in_folder', { path: item.file_path });
     } catch (error) {
@@ -126,8 +173,6 @@
       onSelect(item.id, event);
     }
   }
-
-  const kindLabel = $derived(item.kind === 'file' ? null : t(`kind.${item.kind}`));
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -143,80 +188,68 @@
   onkeydown={handleRowKeydown}
   oncontextmenu={handleContextMenu}
 >
-  <button
-    type="button"
-    class="file-tile cat-{item.category}"
-    class:checked
-    onclick={(event) => {
-      stop(event);
-      onCheck(item.id);
-    }}
-    onkeydown={stopKeydown}
-    title={t('bulk.select')}
-    aria-label={t('bulk.select')}
-    aria-pressed={checked}
-  >
-    {#if checked}
-      <Icon name="check" size={16} />
-    {:else}
-      <span class="ext">{ext}</span>
-    {/if}
-  </button>
+  <span class="check-cell" onclick={stop} role="presentation">
+    <input
+      type="checkbox"
+      checked={checked}
+      onchange={() => onCheck(item.id)}
+      onkeydown={stopKeydown}
+      title={t('bulk.select')}
+      aria-label={t('bulk.select')}
+    />
+  </span>
 
-  <div class="body">
-    <div class="name-line">
+  <div class="name-cell">
+    <span class="file-tile cat-{item.category}">{ext}</span>
+    <div class="name-copy">
       <span class="name" title={item.filename}>{item.filename}</span>
-      {#if kindLabel}
-        <span class="kind-badge {item.kind}" title={kindLabel}>
-          <Icon name={item.kind === 'torrent' ? 'archive' : 'video'} size={11} />
-          <span>{kindLabel}</span>
-        </span>
-      {/if}
-      <span class="status" style="color: {statusColor(item.status)}">{statusLabel(item.status)}</span>
-    </div>
-
-    <div class="progress-line">
-      <div class="progress">
-        <div class="progress-fill" style="width: {progress}%; background: {statusColor(item.status)}"></div>
-      </div>
-      <span class="pct">{progress.toFixed(0)}%</span>
-      <span class="sizes">{formatSize(item.downloaded)} {t('detail.of')} {formatSize(item.total_size)}</span>
+      <span class="meta" title={item.url}>{metaLine}</span>
     </div>
   </div>
 
-    <div class="metrics">
-      <div class="metric">
-        <span class="metric-label">{t('header.speed')}</span>
-        <span class="metric-value speed">{formatSpeed(item.speed)}</span>
-      </div>
-      <div class="metric eta">
-        <span class="metric-label">{t('header.eta')}</span>
-        <span class="metric-value">{item.status === 'downloading' ? formatEta(item.eta) : '—'}</span>
-      </div>
+  <span class="cell size cell-size">{formatSize(item.total_size)}</span>
+
+  <span class="cell status cell-status" style="color: {statusColor(item.status)}">
+    <Icon name={statusIcon(item.status)} size={13} />
+    <span class="status-text" title={item.error ?? statusLabel(item.status)}>{statusLabel(item.status)}</span>
+  </span>
+
+  <div class="cell progress-cell">
+    <div class="progress-head">
+      <span class="pct">{progress.toFixed(0)}%</span>
+      <span class="sizes">{formatSize(item.downloaded)} / {formatSize(item.total_size)}</span>
     </div>
+    <div class="progress">
+      <div class="progress-fill" style="width: {progress}%; background: {statusColor(item.status)}"></div>
+    </div>
+  </div>
+
+  <span class="cell speed cell-speed">{formatSpeed(item.speed)}</span>
+  <span class="cell eta cell-eta">{item.status === 'downloading' ? formatEta(item.eta) : '—'}</span>
+  <span class="cell added cell-added">{formatAdded(item.added_at)}</span>
 
   <div class="row-actions" onclick={stop} role="presentation">
     {#if item.id > 0 && item.kind !== 'video' && item.status === 'downloading'}
       <button class="act" onclick={handlePause} title={t('actions.pause')} aria-label={t('actions.pause')}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        <Icon name="pause" size={14} />
       </button>
     {:else if item.id > 0 && item.kind !== 'video' && item.status === 'paused'}
       <button class="act" onclick={handleResume} title={t('actions.resume')} aria-label={t('actions.resume')}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none"/></svg>
+        <Icon name="play" size={14} />
       </button>
     {/if}
 
     {#if item.status === 'completed'}
       <button class="act" onclick={handleOpenFile} title={t('actions.open')} aria-label={t('actions.open')}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <Icon name="external" size={14} />
       </button>
       <button class="act" onclick={handleShowInFolder} title={t('actions.folder')} aria-label={t('actions.folder')}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <Icon name="folder" size={14} />
       </button>
     {/if}
 
     <button class="act danger" onclick={handleRemove} title={t('actions.remove')} aria-label={t('actions.remove')}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      <Icon name="close" size={14} />
     </button>
   </div>
 
@@ -230,28 +263,30 @@
       role="menu"
       tabindex="-1"
     >
-      <button class="ctx" onclick={handleOpenFile}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        {t('actions.open')}
-      </button>
-      <button class="ctx" onclick={handleShowInFolder}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-        {t('actions.folder')}
-      </button>
-      <hr />
+      {#if item.status === 'completed'}
+        <button class="ctx" onclick={handleOpenFile}>
+          <Icon name="external" size={14} />
+          {t('actions.open')}
+        </button>
+        <button class="ctx" onclick={handleShowInFolder}>
+          <Icon name="folder" size={14} />
+          {t('actions.folder')}
+        </button>
+        <hr />
+      {/if}
       {#if item.id > 0 && item.kind !== 'video' && item.status === 'downloading'}
         <button class="ctx" onclick={handlePause}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          <Icon name="pause" size={14} />
           {t('actions.pause')}
         </button>
       {:else if item.id > 0 && item.kind !== 'video' && item.status === 'paused'}
         <button class="ctx" onclick={handleResume}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+          <Icon name="play" size={14} />
           {t('actions.resume')}
         </button>
       {/if}
       <button class="ctx danger" onclick={handleRemove}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <Icon name="close" size={14} />
         {t('actions.remove')}
       </button>
     </div>
@@ -261,10 +296,11 @@
 <style>
   .row {
     display: grid;
-    grid-template-columns: 40px minmax(0, 1fr) auto auto;
+    grid-template-columns: var(--row-grid);
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
+    gap: 10px;
+    min-height: 52px;
+    padding: 8px 14px;
     border-bottom: 1px solid var(--border-color);
     background: var(--bg-elevated);
     transition: background var(--transition-fast), box-shadow var(--transition-fast);
@@ -277,7 +313,7 @@
   }
 
   .row.checked {
-    background: color-mix(in srgb, var(--warning) 7%, var(--bg-elevated));
+    background: color-mix(in srgb, var(--warning) 6%, var(--bg-elevated));
     box-shadow: inset 3px 0 var(--warning);
   }
 
@@ -286,32 +322,46 @@
     box-shadow: inset 3px 0 var(--accent);
   }
 
+  .check-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .check-cell input {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .name-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .name-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
   .file-tile {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border: none;
+    width: 32px;
+    height: 32px;
     border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     color: #fff;
-    font-size: 9px;
+    font-size: 8.5px;
     font-weight: 700;
     letter-spacing: 0.3px;
     overflow: hidden;
-    cursor: pointer;
-    transition: box-shadow var(--transition-fast), transform var(--transition-fast), filter var(--transition-fast);
-  }
-
-  .file-tile:hover {
-    filter: brightness(1.08);
-    transform: translateY(-1px);
-  }
-
-  .file-tile.checked {
-    box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--warning);
   }
 
   .cat-video { background: linear-gradient(135deg, #f0883e, #db6d28); }
@@ -322,21 +372,6 @@
   .cat-image { background: linear-gradient(135deg, #db61a2, #bf4b8f); }
   .cat-other { background: linear-gradient(135deg, #8b949e, #6e7681); }
 
-  .body {
-    min-width: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .name-line {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    min-width: 0;
-  }
-
   .name {
     font-size: 13px;
     font-weight: 600;
@@ -346,123 +381,96 @@
     white-space: nowrap;
   }
 
-  .status {
-    font-size: 11px;
-    font-weight: 500;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .kind-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    font-size: 10px;
-    font-weight: 600;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .kind-badge.torrent {
-    color: var(--warning);
-  }
-
-  .kind-badge.video {
-    color: var(--accent);
-  }
-
-  .progress-line {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .progress {
-    flex: 1;
-    height: 4px;
-    background: var(--bg-tertiary);
-    border-radius: 2px;
-    overflow: hidden;
-    min-width: 40px;
-  }
-
-  .progress-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.3s ease;
-    background-size: 28px 100%;
-  }
-
-  .row:hover .progress-fill {
-    animation: pulse-bar 0.9s linear infinite;
-  }
-
-  .pct {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    min-width: 34px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .sizes {
+  .meta {
     font-size: 11px;
     color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cell {
+    font-size: 11.5px;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
   }
 
-  .metrics {
+  .size,
+  .speed,
+  .eta,
+  .added {
+    text-align: right;
+  }
+
+  .speed {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .status {
     display: flex;
     align-items: center;
-    gap: 18px;
+    gap: 5px;
+    font-weight: 500;
   }
 
-  .metric {
+  .status-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .progress-cell {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    min-width: 72px;
+    gap: 4px;
+    min-width: 0;
   }
 
-  /* Narrow windows: drop the ETA column before the name gets squeezed out. */
-  @media (max-width: 1000px) {
-    .metric.eta {
-      display: none;
-    }
+  .progress-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
   }
 
-  .metric-label {
-    font-size: 10px;
+  .pct {
+    font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
+    color: var(--text-secondary);
+  }
+
+  .sizes {
+    font-size: 10.5px;
     color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .metric-value {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-variant-numeric: tabular-nums;
+  .progress {
+    height: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 2px;
+    overflow: hidden;
   }
 
-  .metric-value.speed {
-    color: var(--accent);
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+
+  .row:hover .progress-fill {
+    animation: pulse-bar 0.9s linear infinite;
   }
 
   .row-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    justify-content: flex-end;
+    gap: 1px;
     opacity: 0;
     transition: opacity var(--transition-fast);
   }
@@ -476,8 +484,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border: none;
     background: transparent;
     color: var(--text-secondary);
@@ -494,11 +502,6 @@
   .act.danger:hover {
     background: var(--error);
     color: #fff;
-  }
-
-  .act svg {
-    width: 15px;
-    height: 15px;
   }
 
   .menu-backdrop {
@@ -541,15 +544,33 @@
     color: var(--error);
   }
 
-  .ctx svg {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-  }
-
   hr {
     border: none;
     border-top: 1px solid var(--border-color);
     margin: 4px 0;
+  }
+
+  @media (max-width: 1180px) {
+    .cell-added {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1040px) {
+    .cell-eta {
+      display: none;
+    }
+  }
+
+  @media (max-width: 920px) {
+    .cell-size {
+      display: none;
+    }
+  }
+
+  @media (max-width: 820px) {
+    .cell-status {
+      display: none;
+    }
   }
 </style>

@@ -246,6 +246,26 @@
         </div>
       </dl>
 
+      {#if details.torrent?.files?.length}
+        <div class="files-head">
+          <span>{t('details.files')}</span>
+          <span class="files-count">{details.torrent.files.length}</span>
+        </div>
+        <div class="torrent-files">
+          {#each details.torrent.files as file (file.index)}
+            {@const filePercent = file.size > 0 ? Math.min(100, (file.downloaded / file.size) * 100) : 0}
+            <div class="tfile" title={file.path}>
+              <div class="tfile-row">
+                <span class="tfile-name">{file.path}</span>
+                <span class="tfile-size">{formatSize(file.size)}</span>
+                <span class="tfile-pct">{filePercent.toFixed(0)}%</span>
+              </div>
+              <div class="tfile-bar"><div class="tfile-fill" style="width: {filePercent}%"></div></div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
       {#if details.error}
         {@const errorUrl = details.url}
         <p class="state error">{details.error}</p>
@@ -606,6 +626,79 @@
     font-weight: 600;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
+  }
+
+  .files-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: 14px 0 6px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+  }
+
+  .files-count {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .torrent-files {
+    max-height: 220px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+  }
+
+  .tfile-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+
+  .tfile-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+  }
+
+  .tfile-size {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  .tfile-pct {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    min-width: 34px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .tfile-bar {
+    height: 3px;
+    margin-top: 3px;
+    background: var(--bg-tertiary);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .tfile-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
   }
 
   .peer-scroll {

@@ -209,6 +209,21 @@ fn get_returns_one_row_or_none() {
 }
 
 #[test]
+fn set_target_rewrites_the_finished_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Database::open(&dir.path().join("dwv.db")).unwrap();
+    let id = db
+        .insert(&DownloadSpec::new(
+            "magnet:?xt=urn:btih:abc",
+            dir.path().join("folder"),
+        ))
+        .unwrap();
+    let real = dir.path().join("single-file.mkv");
+    db.set_target(id, &real).unwrap();
+    assert_eq!(db.get(id).unwrap().expect("row").target, real);
+}
+
+#[test]
 fn target_helpers_find_and_remove_history() {
     let dir = tempfile::tempdir().unwrap();
     let db = Database::open(&dir.path().join("dwv.db")).unwrap();

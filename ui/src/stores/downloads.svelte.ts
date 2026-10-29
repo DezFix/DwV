@@ -62,6 +62,28 @@ export interface TorrentInfo {
   ratio: number;
   peers_live: number;
   peers_seen: number;
+  files: TorrentFileInfo[];
+}
+
+export interface TorrentFileInfo {
+  index: number;
+  path: string;
+  size: number;
+  downloaded: number;
+}
+
+export interface TorrentMetaFile {
+  index: number;
+  path: string;
+  size: number;
+  downloaded: number;
+}
+
+export interface TorrentMeta {
+  info_hash: string;
+  name: string;
+  total_size: number;
+  files: TorrentMetaFile[];
 }
 
 export interface DownloadDetails {
@@ -201,8 +223,8 @@ class DownloadsStore {
     await invoke<number>('add_video', { url, dir, quality });
   }
 
-  async addTorrent(source: string, dir?: string) {
-    await invoke<number>('add_torrent', { source, dir });
+  async addTorrent(source: string, dir?: string, onlyFiles?: number[] | null) {
+    await invoke<number>('add_torrent', { source, dir, onlyFiles });
   }
 
   addItem(item: DownloadItem) {

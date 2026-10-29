@@ -138,7 +138,7 @@
     "message": "Connection"
   },
   "connectionText": {
-    "message": "The extension talks to the app at <code>http://127.0.0.1:41763/</code>. If DwV is closed, the extension tries to start it through the <code>dwv://</code> link."
+    "message": "The extension talks to the app at http://127.0.0.1:41763/. If DwV is closed, the extension tries to start it through the dwv:// link."
   },
   "connectionChecking": {
     "message": "Checking the connection…"

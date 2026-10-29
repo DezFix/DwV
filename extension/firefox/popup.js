@@ -14,9 +14,6 @@ function localize() {
   for (const node of document.querySelectorAll("[data-i18n]")) {
     node.textContent = t(node.dataset.i18n);
   }
-  for (const node of document.querySelectorAll("[data-i18n-html]")) {
-    node.innerHTML = t(node.dataset.i18nHtml);
-  }
 }
 
 localize();

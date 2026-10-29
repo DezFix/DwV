@@ -27,4 +27,4 @@
 - `DwV_0.2.1_x64-setup.exe` — установщик.
 - `DwV-0.2.1-portable.exe` — портативная версия.
 - `DwV_0.2.1_x64_en-US.msi` — MSI.
-- `dwv-firefox-1.2.12.xpi` — подписанное расширение для Firefox/LibreWolf.
+- `dwv-firefox-1.2.13.xpi` — подписанное расширение для Firefox/LibreWolf.

@@ -232,8 +232,8 @@ function assertFetchShape(state) {
 assert(source === firefoxSource, "chrome and firefox background scripts must be identical");
 assert(contentSource === chromeContentSource, "chrome and firefox content scripts must be identical");
 assert(popupSource === chromePopupSource, "chrome and firefox popup scripts must be identical");
-assert(firefoxManifest.version === "1.2.12", "firefox manifest version");
-assert(chromeManifest.version === "1.2.12", "chrome manifest version");
+assert(firefoxManifest.version === "1.2.13", "firefox manifest version");
+assert(chromeManifest.version === "1.2.13", "chrome manifest version");
 assert(
   /sendResponse\(\{\s*videos:\s*collectVideos\(\)\s*\}\)/.test(contentSource),
   "content scan-videos responds with {videos}",
@@ -525,15 +525,30 @@ console.log("ok: chrome fail-open on every transport failure");
       { name: "Content-Type", value: "application/pdf" },
     ],
   });
-  assert(JSON.stringify(result) === "{}", "sub_frame response is left untouched");
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  assert(state.fetches.length === 0, "sub_frame sends nothing");
-  assert(state.requests.length === 0, "sub_frame posts no message");
-  assert(
-    !state.commands.some(([name]) => ["cancel", "erase", "download", "removeFile"].includes(name)),
-    "sub_frame cancels nothing",
+  assert(result.cancel === true, "a download started from an iframe is captured too");
+  await waitFor(
+    () => state.requests.some((request) => request.type === "download"),
+    "sub_frame hand-off",
   );
-  console.log("ok: firefox sub_frame ignored");
+  const message = state.requests.find((request) => request.type === "download");
+  assert(message.filename === "report.pdf", `sub_frame filename: ${message.filename}`);
+  console.log("ok: firefox sub_frame download captured");
+}
+
+{
+  const state = load("firefox");
+  const result = dispatchHeaders(state, {
+    url: "https://example.com/api/data",
+    method: "GET",
+    type: "xmlhttprequest",
+    tabId: 4,
+    statusCode: 200,
+    responseHeaders: [{ name: "Content-Type", value: "application/octet-stream" }],
+  });
+  assert(JSON.stringify(result) === "{}", "xhr responses are left untouched");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert(state.requests.length === 0, "xhr sends nothing");
+  console.log("ok: firefox xhr ignored");
 }
 
 {

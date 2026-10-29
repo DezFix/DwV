@@ -28,7 +28,7 @@ Chrome 116 or newer is required.
 1. Start DwV.
 2. Open `about:debugging#/runtime/this-firefox`.
 3. Click **Load Temporary Add-on...** and select
-   `extension/firefox/manifest.json` or `extension/dist/dwv-1.2.12.xpi`.
+   `extension/firefox/manifest.json` or `extension/dist/dwv-1.2.13.xpi`.
 4. Grant the requested host access if Firefox asks.
 
 Temporary add-ons disappear when Firefox closes. For a persistent unsigned

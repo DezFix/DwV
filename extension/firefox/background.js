@@ -18,9 +18,15 @@ const MEDIA_EXTENSIONS = /\.(m3u8|mpd|mp4|m4v|webm|mkv|mov)(?:[?#]|$)/i;
 const STREAM_EXTENSIONS = /\.(m3u8|mpd)(?:[?#]|$)/i;
 const MEDIA_MIME = /^(?:video\/(?:mp4|webm|x-matroska|quicktime|3gpp)|application\/(?:vnd\.apple\.mpegurl|x-mpegurl|dash\+xml|mpd))$/i;
 
-// Content types Firefox itself turns into a download even without
-// `Content-Disposition`. Trackers and file hosts use these from `download.php`.
-const DOWNLOAD_MIME = /^(?:application\/(?:octet-stream|zip|x-zip-compressed|x-rar-compressed|vnd\.rar|x-7z-compressed|x-tar|gzip|x-gzip|x-bzip2|x-bzip|x-xz|x-msdownload|x-msi|x-apple-diskimage|vnd\.android\.package-archive|x-bittorrent|java-archive|x-deb|x-rpm|vnd\.mozilla\.x-xpinstall)|binary\/octet-stream)$/i;
+// Firefox turns a response into a download when it has `Content-Disposition`,
+// or when the type isn't something it can render. File hosts and trackers skip
+// the header and answer `application/octet-stream` from paths like
+// `/download/13562`, so the type has to decide. Exclusions are the types that
+// pages and API calls legitimately use inline.
+const INLINE_APPLICATION_MIME = /json|javascript|xml|protobuf|x-binary|^application\/binary$|mpegurl|dash\+xml/i;
+
+// An iframe navigation is how many sites start a download; FDM relies on the same set.
+const CAPTURE_TYPES = new Set(["main_frame", "sub_frame"]);
 
 const DEFAULT_SETTINGS = { enabled: true, captureFiles: true, captureVideo: true };
 const settings = { ...DEFAULT_SETTINGS };
@@ -88,8 +94,14 @@ function isTorrentMime(mime) {
   return /application\/(x-)?bittorrent/i.test(mime || "");
 }
 
-function isDownloadMime(mime) {
-  return DOWNLOAD_MIME.test((mime || "").split(";")[0].trim());
+/** True when Firefox would save this response instead of rendering it. */
+function isDownloadResponse(url, filename, mime, attachment) {
+  if (attachment) return true;
+  if (FILE_EXTENSIONS.has(fileExtension(url, filename))) return true;
+  if (isTorrentMime(mime)) return true;
+  const type = (mime || "").split(";")[0].trim().toLowerCase();
+  if (!type.startsWith("application/")) return false;
+  return !INLINE_APPLICATION_MIME.test(type);
 }
 
 function isTorrent(url, filename, mime) {
@@ -506,33 +518,28 @@ function onDeterminingFilename(item, suggest) {
   const url = item.finalUrl || item.url;
   const context = findRecord(contexts, url, item.url);
   const response = findRecord(responses, url, item.url);
-  const extension = fileExtension(url, item.filename);
   const captured = isHttp(url)
     && (!context || context.method === "GET")
-    && (Boolean(response?.attachment) || FILE_EXTENSIONS.has(extension) || isTorrentMime(item.mime || response?.mime) || isDownloadMime(item.mime || response?.mime));
+    && isDownloadResponse(url, item.filename, item.mime || response?.mime, response?.attachment);
   handleChromeDownload(item, url, context, response, captured, suggest).catch(() => {});
   return true;
 }
 
 function onHeadersReceivedFirefox(details) {
   if (details.method !== "GET") return {};
-  if (details.type !== "main_frame") return {};
+  if (!CAPTURE_TYPES.has(details.type)) return {};
+  if (details.tabId < 0) return {};
   if (!isHttp(details.url)) return {};
   const response = recordResponse(details);
   console.info("[dwv] response", details.url, {
+    type: details.type,
     mime: response?.mime,
     attachment: response?.attachment,
     name: response?.filename,
     capture: captureOn("captureFiles"),
   });
   if (!captureOn("captureFiles") || recentlyHandedOff(details.url)) return {};
-  const extension = fileExtension(details.url, response?.filename);
-  if (
-    !response?.attachment
-    && !FILE_EXTENSIONS.has(extension)
-    && !isTorrentMime(response?.mime)
-    && !isDownloadMime(response?.mime)
-  ) return {};
+  if (!isDownloadResponse(details.url, response?.filename, response?.mime, response?.attachment)) return {};
   remember(handedOff, details.url, Date.now());
   firefoxHandOff(details, response).catch(() => {});
   return { cancel: true };
@@ -627,13 +634,7 @@ async function onCreatedFirefox(item) {
   const context = findRecord(contexts, url, item.url);
   const response = findRecord(responses, url, item.url);
   if (context && context.method !== "GET") return;
-  const extension = fileExtension(url, item.filename);
-  if (
-    !response?.attachment
-    && !FILE_EXTENSIONS.has(extension)
-    && !isTorrentMime(item.mime || response?.mime)
-    && !isDownloadMime(item.mime || response?.mime)
-  ) return;
+  if (!isDownloadResponse(url, item.filename, item.mime || response?.mime, response?.attachment)) return;
   remember(handedOff, url, Date.now());
   api.downloads.cancel(item.id).catch(() => {});
   api.downloads.removeFile(item.id).catch(() => {});
@@ -772,7 +773,7 @@ if (IS_CHROME) {
   api.webRequest.onHeadersReceived.addListener(recordMedia, FILTER, ["responseHeaders"]);
   api.webRequest.onHeadersReceived.addListener(
     onHeadersReceivedFirefox,
-    { urls: FILTER.urls, types: ["main_frame"] },
+    FILTER,
     ["responseHeaders", "blocking"],
   );
   api.downloads.onCreated.addListener(onCreatedFirefox);

@@ -18,6 +18,10 @@ const MEDIA_EXTENSIONS = /\.(m3u8|mpd|mp4|m4v|webm|mkv|mov)(?:[?#]|$)/i;
 const STREAM_EXTENSIONS = /\.(m3u8|mpd)(?:[?#]|$)/i;
 const MEDIA_MIME = /^(?:video\/(?:mp4|webm|x-matroska|quicktime|3gpp)|application\/(?:vnd\.apple\.mpegurl|x-mpegurl|dash\+xml|mpd))$/i;
 
+// Content types Firefox itself turns into a download even without
+// `Content-Disposition`. Trackers and file hosts use these from `download.php`.
+const DOWNLOAD_MIME = /^(?:application\/(?:octet-stream|zip|x-zip-compressed|x-rar-compressed|vnd\.rar|x-7z-compressed|x-tar|gzip|x-gzip|x-bzip2|x-bzip|x-xz|x-msdownload|x-msi|x-apple-diskimage|vnd\.android\.package-archive|x-bittorrent|java-archive|x-deb|x-rpm|vnd\.mozilla\.x-xpinstall)|binary\/octet-stream)$/i;
+
 const DEFAULT_SETTINGS = { enabled: true, captureFiles: true, captureVideo: true };
 const settings = { ...DEFAULT_SETTINGS };
 
@@ -82,6 +86,10 @@ function isHttp(url) {
 
 function isTorrentMime(mime) {
   return /application\/(x-)?bittorrent/i.test(mime || "");
+}
+
+function isDownloadMime(mime) {
+  return DOWNLOAD_MIME.test((mime || "").split(";")[0].trim());
 }
 
 function isTorrent(url, filename, mime) {
@@ -501,7 +509,7 @@ function onDeterminingFilename(item, suggest) {
   const extension = fileExtension(url, item.filename);
   const captured = isHttp(url)
     && (!context || context.method === "GET")
-    && (Boolean(response?.attachment) || FILE_EXTENSIONS.has(extension) || isTorrentMime(item.mime || response?.mime));
+    && (Boolean(response?.attachment) || FILE_EXTENSIONS.has(extension) || isTorrentMime(item.mime || response?.mime) || isDownloadMime(item.mime || response?.mime));
   handleChromeDownload(item, url, context, response, captured, suggest).catch(() => {});
   return true;
 }
@@ -519,7 +527,12 @@ function onHeadersReceivedFirefox(details) {
   });
   if (!captureOn("captureFiles") || recentlyHandedOff(details.url)) return {};
   const extension = fileExtension(details.url, response?.filename);
-  if (!response?.attachment && !FILE_EXTENSIONS.has(extension) && !isTorrentMime(response?.mime)) return {};
+  if (
+    !response?.attachment
+    && !FILE_EXTENSIONS.has(extension)
+    && !isTorrentMime(response?.mime)
+    && !isDownloadMime(response?.mime)
+  ) return {};
   remember(handedOff, details.url, Date.now());
   firefoxHandOff(details, response).catch(() => {});
   return { cancel: true };
@@ -619,6 +632,7 @@ async function onCreatedFirefox(item) {
     !response?.attachment
     && !FILE_EXTENSIONS.has(extension)
     && !isTorrentMime(item.mime || response?.mime)
+    && !isDownloadMime(item.mime || response?.mime)
   ) return;
   remember(handedOff, url, Date.now());
   api.downloads.cancel(item.id).catch(() => {});

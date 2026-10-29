@@ -232,8 +232,8 @@ function assertFetchShape(state) {
 assert(source === firefoxSource, "chrome and firefox background scripts must be identical");
 assert(contentSource === chromeContentSource, "chrome and firefox content scripts must be identical");
 assert(popupSource === chromePopupSource, "chrome and firefox popup scripts must be identical");
-assert(firefoxManifest.version === "1.2.11", "firefox manifest version");
-assert(chromeManifest.version === "1.2.11", "chrome manifest version");
+assert(firefoxManifest.version === "1.2.12", "firefox manifest version");
+assert(chromeManifest.version === "1.2.12", "chrome manifest version");
 assert(
   /sendResponse\(\{\s*videos:\s*collectVideos\(\)\s*\}\)/.test(contentSource),
   "content scan-videos responds with {videos}",
@@ -485,6 +485,32 @@ console.log("ok: chrome fail-open on every transport failure");
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert(state.requests.length === before, "handedOff set blocks duplicate handling");
   console.log("ok: firefox attachment path");
+}
+
+{
+  const state = load("firefox");
+  const result = dispatchHeaders(state, {
+    url: "https://tracker.example/download/13562",
+    method: "GET",
+    type: "main_frame",
+    statusCode: 200,
+    responseHeaders: [
+      { name: "Content-Type", value: "application/octet-stream" },
+      { name: "Content-Length", value: "2048" },
+    ],
+  });
+  assert(result.cancel === true, "octet-stream is captured before the save dialog");
+  await waitFor(
+    () => state.requests.some((request) => request.type === "download"),
+    "octet-stream hand-off",
+  );
+  const message = state.requests.find((request) => request.type === "download");
+  assert(message.mime === "application/octet-stream", `octet-stream mime: ${message.mime}`);
+  assert(
+    !state.commands.some(([name]) => name === "download"),
+    "the browser never starts its own download",
+  );
+  console.log("ok: firefox octet-stream capture");
 }
 
 {

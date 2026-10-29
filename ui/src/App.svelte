@@ -391,12 +391,14 @@
     const value = url.trim();
     if (!value) return;
 
-    if (settingsStore.ask_save_path) {
+    // Torrents always open the file picker: choosing what to download is the point.
+    const torrent = kind === 'torrent' || isTorrentSource(value);
+    if (torrent || settingsStore.ask_save_path) {
       addQueue = [
         ...addQueue,
         {
           key: `local-${addSeq++}`,
-          kind,
+          kind: torrent ? 'torrent' : kind,
           url: value,
           filename: suggestedName(value),
           dir: settingsStore.download_dir || defaultDir,
@@ -408,11 +410,10 @@
     await startAdd(value, kind);
   }
 
-  async function confirmTorrent(dir: string, onlyFiles: number[] | null, hide: boolean) {
+  async function confirmTorrent(dir: string, onlyFiles: number[] | null) {
     const request = addQueue[0];
     if (!request) return;
     addQueue = addQueue.slice(1);
-    if (hide) await settingsStore.save({ ask_save_path: false });
 
     try {
       if (request.pendingId !== undefined) {

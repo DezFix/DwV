@@ -1799,19 +1799,18 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                     }
                 }
                 dwv_ipc::Request::Torrent { source, .. } => {
-                    if should_ask_path(&ipc_state) {
-                        let name = dwv_torrent::torrent_name(&source);
-                        queue_pending(
-                            &ipc_state,
-                            &state,
-                            PendingPayload::Torrent(source.clone()),
-                            "torrent",
-                            &source,
-                            Some(name),
-                        );
-                        continue;
-                    }
-                    let _ = add_torrent_inner(&ipc_state, &state, &source, None, None).await;
+                    // The file picker is mandatory for torrents, so queue them even
+                    // when the folder dialog is disabled.
+                    let name = dwv_torrent::torrent_name(&source);
+                    queue_pending(
+                        &ipc_state,
+                        &state,
+                        PendingPayload::Torrent(source.clone()),
+                        "torrent",
+                        &source,
+                        Some(name),
+                    );
+                    continue;
                 }
                 dwv_ipc::Request::Video { url, .. } => {
                     if should_ask_path(&ipc_state) {

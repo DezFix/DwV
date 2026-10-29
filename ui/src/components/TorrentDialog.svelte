@@ -11,7 +11,7 @@
     filename: string;
     dir: string;
     onCancel: () => void;
-    onConfirm: (dir: string, onlyFiles: number[] | null, hide: boolean) => void;
+    onConfirm: (dir: string, onlyFiles: number[] | null) => void;
   }
 
   interface FileNode {
@@ -28,7 +28,6 @@
   let { open: isOpen, source, filename, dir, onCancel, onConfirm }: Props = $props();
 
   let folder = $state('');
-  let hide = $state(false);
   let meta = $state<TorrentMeta | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -46,7 +45,6 @@
   $effect(() => {
     if (!isOpen) return;
     folder = dir;
-    hide = false;
     void load(dir);
   });
 
@@ -177,7 +175,7 @@
         onlyFiles = [...checked].sort((a, b) => a - b);
       }
     }
-    onConfirm(target, onlyFiles, hide);
+    onConfirm(target, onlyFiles);
   }
 
   async function browse() {
@@ -295,10 +293,6 @@
       {/if}
 
       <div class="footer">
-        <label class="remember">
-          <input type="checkbox" bind:checked={hide} />
-          <span>{t('adddialog.dont_show')}</span>
-        </label>
         <div class="buttons">
           <button class="btn ghost" onclick={onCancel}>{t('adddialog.cancel')}</button>
           {#if error}
@@ -548,26 +542,9 @@
   .footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 12px;
     margin-top: 18px;
-  }
-
-  .remember {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .remember input {
-    width: 14px;
-    height: 14px;
-    accent-color: var(--accent);
-    cursor: pointer;
   }
 
   .buttons {

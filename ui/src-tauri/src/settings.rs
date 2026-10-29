@@ -15,6 +15,8 @@ pub struct Settings {
     pub max_concurrent_downloads: u32,
     pub speed_limit_mbps: f64,
     pub auto_start_downloads: bool,
+    #[serde(default = "default_connections")]
+    pub connections_per_download: u32,
     #[serde(default = "default_true")]
     pub ask_save_path: bool,
     #[serde(default = "default_autostart")]
@@ -51,6 +53,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_connections() -> u32 {
+    8
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -58,6 +64,7 @@ impl Default for Settings {
             max_concurrent_downloads: 3,
             speed_limit_mbps: 2.0,
             auto_start_downloads: true,
+            connections_per_download: 8,
             ask_save_path: true,
             autostart: true,
             minimize_to_tray: true,
@@ -124,10 +131,13 @@ mod tests {
     use super::Settings;
 
     #[test]
-    fn old_settings_without_ask_save_path_keep_the_dialog() {
+    fn old_settings_get_new_defaults() {
         let mut value = serde_json::to_value(Settings::default()).unwrap();
-        value.as_object_mut().unwrap().remove("ask_save_path");
+        let object = value.as_object_mut().unwrap();
+        object.remove("ask_save_path");
+        object.remove("connections_per_download");
         let settings: Settings = serde_json::from_value(value).unwrap();
         assert!(settings.ask_save_path);
+        assert_eq!(settings.connections_per_download, 8);
     }
 }

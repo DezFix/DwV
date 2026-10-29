@@ -316,11 +316,11 @@
     return lower.startsWith('magnet:') || /\.torrent(?:[?#]|$)/.test(lower);
   }
 
-  async function performAdd(value: string, kind: AddKind, filename?: string, dir?: string) {
+  async function performAdd(value: string, kind: AddKind, filename?: string, dir?: string, quality?: string) {
     if (filename) {
       await downloadsStore.addAs(value, filename, dir);
     } else if (kind === 'video') {
-      await downloadsStore.addVideo(value, dir);
+      await downloadsStore.addVideo(value, dir, quality);
     } else if (kind === 'torrent' || isTorrentSource(value)) {
       await downloadsStore.addTorrent(value, dir);
     } else {
@@ -330,7 +330,7 @@
     query = '';
   }
 
-  async function startAdd(value: string, kind: AddKind, dir?: string) {
+  async function startAdd(value: string, kind: AddKind, dir?: string, quality?: string) {
     try {
       if (kind === 'file' && !isTorrentSource(value)) {
         try {
@@ -345,7 +345,7 @@
           // Preview is a safety net; a failed HEAD must not block the download.
         }
       }
-      await performAdd(value, kind, undefined, dir);
+      await performAdd(value, kind, undefined, dir, quality);
     } catch (error) {
       showToast(`${t('add.failed')}: ${String(error)}`);
     }
@@ -382,7 +382,7 @@
     await startAdd(value, kind);
   }
 
-  async function confirmAdd(dir: string, hide: boolean) {
+  async function confirmAdd(dir: string, hide: boolean, quality: string) {
     const request = addQueue[0];
     if (!request) return;
     addQueue = addQueue.slice(1);
@@ -390,7 +390,7 @@
 
     if (request.pendingId !== undefined) {
       try {
-        await invoke('resolve_pending', { id: request.pendingId, dir });
+        await invoke('resolve_pending', { id: request.pendingId, dir, quality });
         mode = 'files';
         query = '';
       } catch (error) {
@@ -399,7 +399,7 @@
       return;
     }
 
-    await startAdd(request.url, request.kind, dir);
+    await startAdd(request.url, request.kind, dir, quality);
   }
 
   async function cancelAdd() {
@@ -725,6 +725,7 @@
       open={addQueue.length > 0 && duplicate === null}
       filename={addQueue[0]?.filename ?? ''}
       url={addQueue[0]?.url ?? ''}
+      kind={addQueue[0]?.kind ?? 'file'}
       dir={addQueue[0]?.dir ?? ''}
       onCancel={cancelAdd}
       onConfirm={confirmAdd}

@@ -197,6 +197,36 @@ async fn downloads_into_the_chosen_folder() {
 }
 
 #[tokio::test]
+async fn uses_the_configured_connections() {
+    let dir = std::env::temp_dir().join(format!("dwv-conn-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (state, _events) = AppState::new(dir.join("settings.json"), dir.clone());
+    state.settings.lock().unwrap().connections_per_download = 4;
+
+    let url = serve(b"x".to_vec());
+    let id = add_download_inner(&state, &url)
+        .await
+        .expect("add download");
+
+    let target = state
+        .downloads
+        .lock()
+        .unwrap()
+        .get(&id)
+        .and_then(|item| item.file_path.clone())
+        .expect("target path");
+    let db = state.db.as_ref().expect("db");
+    let row = db
+        .latest_id_by_target(std::path::Path::new(&target))
+        .unwrap()
+        .expect("history row");
+    let stored = db.get(row).unwrap().expect("stored row");
+    assert_eq!(stored.connections, 4);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn removing_a_video_with_files_deletes_the_file() {
     let dir = std::env::temp_dir().join(format!("dwv-video-del-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -243,7 +273,10 @@ async fn removing_only_the_item_keeps_the_video_file() {
         .await
         .expect("remove video");
 
-    assert!(path.exists(), "the file must stay when only the item is removed");
+    assert!(
+        path.exists(),
+        "the file must stay when only the item is removed"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -258,7 +291,10 @@ async fn removing_a_history_row_deletes_the_stored_file() {
     std::fs::write(&path, b"video").unwrap();
     let db = state.db.as_ref().expect("db").clone();
     let row = db
-        .insert(&DownloadSpec::new("https://youtu.be/abc".to_string(), path.clone()))
+        .insert(&DownloadSpec::new(
+            "https://youtu.be/abc".to_string(),
+            path.clone(),
+        ))
         .unwrap();
     db.finish(row, DbState::Completed).unwrap();
 

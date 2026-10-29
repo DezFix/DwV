@@ -197,8 +197,8 @@ class DownloadsStore {
     await invoke<number>('add_download_as', { url, filename, dir });
   }
 
-  async addVideo(url: string, dir?: string) {
-    await invoke<number>('add_video', { url, dir });
+  async addVideo(url: string, dir?: string, quality?: string) {
+    await invoke<number>('add_video', { url, dir, quality });
   }
 
   async addTorrent(source: string, dir?: string) {

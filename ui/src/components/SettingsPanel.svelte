@@ -241,6 +241,21 @@
         </div>
 
         <div class="row">
+          <span class="label">{t('settings.connections')}</span>
+          <input
+            type="number"
+            min="1"
+            max="32"
+            class="input number"
+            value={settingsStore.connections_per_download}
+            onchange={(e) => settingsStore.save({
+              connections_per_download: Math.min(32, Math.max(1, Number(e.currentTarget.value) || 1)),
+            })}
+          />
+          <p class="hint">{t('settings.connections_hint')}</p>
+        </div>
+
+        <div class="row">
           <span class="label">{t('settings.speed_limit')}</span>
           <input
             type="number"
@@ -685,6 +700,7 @@
   .nav-item.active {
     background: var(--accent-soft);
     color: var(--accent);
+    font-weight: 600;
   }
 
   .nav-icon {
@@ -725,18 +741,23 @@
     grid-template-columns: 190px 1fr;
     align-items: center;
     gap: 6px 16px;
-    padding: 11px 0;
+    padding: 12px 0;
+  }
+
+  .row + .row {
+    border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
   }
 
   .row > .label {
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-primary);
   }
 
   .row .hint {
     grid-column: 2;
-    font-size: 11px;
+    font-size: 12px;
+    line-height: 1.45;
     color: var(--text-muted);
     margin: 0;
   }

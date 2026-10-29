@@ -60,9 +60,44 @@ pub enum VideoQuality {
     P1080,
     P720,
     P480,
+    AudioMp3,
+    AudioM4a,
 }
 
 impl VideoQuality {
+    /// Keys are shared with the add dialog and the IPC whitelist.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Some(match key {
+            "best" => Self::Best,
+            "1080p" => Self::P1080,
+            "720p" => Self::P720,
+            "480p" => Self::P480,
+            "audio-mp3" => Self::AudioMp3,
+            "audio-m4a" => Self::AudioM4a,
+            _ => return None,
+        })
+    }
+
+    pub fn is_audio(self) -> bool {
+        matches!(self, Self::AudioMp3 | Self::AudioM4a)
+    }
+
+    pub fn output_extension(self) -> &'static str {
+        match self {
+            Self::AudioMp3 => "mp3",
+            Self::AudioM4a => "m4a",
+            _ => "mp4",
+        }
+    }
+
+    fn audio_format(self) -> Option<&'static str> {
+        match self {
+            Self::AudioMp3 => Some("mp3"),
+            Self::AudioM4a => Some("m4a"),
+            _ => None,
+        }
+    }
+
     // Prefer H.264 + AAC in MP4: the best streams (AV1/VP9 + Opus) land in
     // .webm/.mkv files that Windows players often refuse to open.
     pub fn ytdlp_format(self) -> &'static str {
@@ -79,6 +114,7 @@ impl VideoQuality {
             Self::P480 => {
                 "bv*[height<=480][vcodec^=avc1][ext=mp4]+ba[acodec^=mp4a][ext=m4a]/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/bv*[height<=480]+ba/b[height<=480]"
             }
+            Self::AudioMp3 | Self::AudioM4a => "ba/b",
         }
     }
 }
@@ -289,8 +325,6 @@ pub async fn download_video_with_limit(
         .arg("--windows-filenames")
         .arg("--ffmpeg-location")
         .arg(&ffmpeg_dir)
-        .arg("--merge-output-format")
-        .arg("mp4")
         .arg("--trim-filenames")
         .arg("150")
         .arg("--progress-template")
@@ -301,6 +335,19 @@ pub async fn download_video_with_limit(
         .arg("--print-to-file")
         .arg("after_move:%(filepath)s")
         .arg(&print_path);
+    match quality.audio_format() {
+        Some(format) => {
+            command
+                .arg("-x")
+                .arg("--audio-format")
+                .arg(format)
+                .arg("--audio-quality")
+                .arg("0");
+        }
+        None => {
+            command.arg("--merge-output-format").arg("mp4");
+        }
+    }
     if let Some(limit) = limit_bps.filter(|value| *value > 0) {
         command.arg("--limit-rate").arg(limit.to_string());
     }
@@ -404,7 +451,19 @@ fn newest_output(dir: &Path, started: SystemTime, before: &HashSet<PathBuf>) -> 
         };
         if !matches!(
             extension.as_str(),
-            "mp4" | "mkv" | "webm" | "m4v" | "mov" | "avi"
+            "mp4"
+                | "mkv"
+                | "webm"
+                | "m4v"
+                | "mov"
+                | "avi"
+                | "mp3"
+                | "m4a"
+                | "aac"
+                | "opus"
+                | "ogg"
+                | "flac"
+                | "wav"
         ) {
             continue;
         }
@@ -621,5 +680,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(lines, vec!["a\u{FFFD}b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn maps_quality_keys_to_extensions() {
+        assert_eq!(VideoQuality::from_key("1080p"), Some(VideoQuality::P1080));
+        assert_eq!(
+            VideoQuality::from_key("audio-mp3"),
+            Some(VideoQuality::AudioMp3)
+        );
+        assert_eq!(
+            VideoQuality::from_key("audio-m4a"),
+            Some(VideoQuality::AudioM4a)
+        );
+        assert_eq!(VideoQuality::from_key("nope"), None);
+        assert!(VideoQuality::AudioMp3.is_audio());
+        assert!(!VideoQuality::Best.is_audio());
+        assert_eq!(VideoQuality::AudioMp3.output_extension(), "mp3");
+        assert_eq!(VideoQuality::AudioM4a.output_extension(), "m4a");
+        assert_eq!(VideoQuality::P720.output_extension(), "mp4");
     }
 }

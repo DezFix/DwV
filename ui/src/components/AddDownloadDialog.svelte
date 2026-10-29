@@ -7,20 +7,23 @@
     open: boolean;
     filename: string;
     url: string;
+    kind: string;
     dir: string;
     onCancel: () => void;
-    onConfirm: (dir: string, hide: boolean) => void;
+    onConfirm: (dir: string, hide: boolean, quality: string) => void;
   }
 
-  let { open: isOpen, filename, url, dir, onCancel, onConfirm }: Props = $props();
+  let { open: isOpen, filename, url, kind, dir, onCancel, onConfirm }: Props = $props();
 
   let folder = $state('');
   let hide = $state(false);
+  let quality = $state('best');
 
   $effect(() => {
     if (isOpen) {
       folder = dir;
       hide = false;
+      quality = 'best';
     }
   });
 
@@ -36,7 +39,7 @@
   function confirm() {
     const value = folder.trim();
     if (!value) return;
-    onConfirm(value, hide);
+    onConfirm(value, hide, quality);
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -81,6 +84,18 @@
       <p class="filename" title={filename || url}>{filename || url}</p>
       {#if filename && filename !== url}
         <p class="url" title={url}>{url}</p>
+      {/if}
+
+      {#if kind === 'video'}
+        <span class="label">{t('adddialog.quality')}</span>
+        <select class="input quality" bind:value={quality}>
+          <option value="best">{t('quality.best')}</option>
+          <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="480p">480p</option>
+          <option value="audio-mp3">{t('quality.audio_mp3')}</option>
+          <option value="audio-m4a">{t('quality.audio_m4a')}</option>
+        </select>
       {/if}
 
       <span class="label">{t('adddialog.folder')}</span>
@@ -235,6 +250,11 @@
 
   .input:focus {
     border-color: var(--accent);
+  }
+
+  select.input {
+    width: 100%;
+    cursor: pointer;
   }
 
   .footer {

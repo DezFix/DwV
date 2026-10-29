@@ -312,7 +312,9 @@ pub async fn add_download(
 ) -> Result<u64, String> {
     let context = DownloadContext {
         url,
-        dir: dir.map(PathBuf::from).filter(|path| !path.as_os_str().is_empty()),
+        dir: dir
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty()),
         ..Default::default()
     };
     let id = add_download_with_context(&state, context).await?;
@@ -389,16 +391,17 @@ pub async fn add_download_with_context(
         None => resolve_filename_with_headers(&fetch_url, &headers).await,
     };
     let category = category_of(&filename);
-    let dir = context
-        .dir
-        .clone()
-        .unwrap_or_else(|| state.target_dir());
+    let connections = {
+        let settings = state.settings.lock().unwrap();
+        settings.connections_per_download.clamp(1, 32) as usize
+    };
+    let dir = context.dir.clone().unwrap_or_else(|| state.target_dir());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let filename = unique_download_name(&dir, &filename);
     let target = dir.join(&filename);
     let mut spec = DownloadSpec::new(fetch_url, target.clone());
-    spec.connections = 1;
+    spec.connections = connections;
     spec.headers = headers;
 
     let id = state.queue.add(spec).await.map_err(|e| e.to_string())?;
@@ -502,7 +505,9 @@ pub async fn add_download_as(
         DownloadContext {
             url,
             filename: Some(filename),
-            dir: dir.map(PathBuf::from).filter(|path| !path.as_os_str().is_empty()),
+            dir: dir
+                .map(PathBuf::from)
+                .filter(|path| !path.as_os_str().is_empty()),
             ..Default::default()
         },
     )
@@ -534,10 +539,11 @@ fn has_crlf(value: &str) -> bool {
 pub async fn add_video(
     url: String,
     dir: Option<String>,
+    quality: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<i64, String> {
-    add_video_inner(&state, &app, &url, dir.as_deref()).await
+    add_video_inner(&state, &app, &url, dir.as_deref(), quality.as_deref()).await
 }
 
 pub async fn add_video_inner(
@@ -545,11 +551,15 @@ pub async fn add_video_inner(
     app: &AppHandle,
     url: &str,
     dir: Option<&str>,
+    quality: Option<&str>,
 ) -> Result<i64, String> {
     let url = url.trim().to_string();
     if url.is_empty() {
         return Err("Пустая ссылка".to_string());
     }
+    let quality = quality
+        .and_then(dwv_media::VideoQuality::from_key)
+        .unwrap_or(dwv_media::VideoQuality::Best);
 
     let id = VIDEO_ID_BASE + state.torrent_seq.fetch_add(1, Ordering::Relaxed) as i64;
     let dir = dir
@@ -558,7 +568,7 @@ pub async fn add_video_inner(
         .unwrap_or_else(|| state.target_dir());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    let filename = format!("video-{id}.mp4");
+    let filename = format!("video-{id}.{}", quality.output_extension());
     let placeholder = dir.join(&filename);
     let db_id = state.db.as_ref().and_then(|db| {
         let mut spec = DownloadSpec::new(url.clone(), placeholder.clone());
@@ -578,7 +588,11 @@ pub async fn add_video_inner(
         eta: 0,
         added_at: now_secs(),
         file_path: None,
-        category: Category::Video,
+        category: if quality.is_audio() {
+            Category::Audio
+        } else {
+            Category::Video
+        },
         connections: 0,
         kind: "video".to_string(),
         db_id,
@@ -596,7 +610,7 @@ pub async fn add_video_inner(
     } else {
         None
     };
-    spawn_video_task(state, app, id, url, dir, placeholder, limit_bps);
+    spawn_video_task(state, app, id, url, dir, placeholder, quality, limit_bps);
     Ok(id)
 }
 
@@ -619,6 +633,7 @@ fn spawn_video_task(
     url: String,
     dir: PathBuf,
     placeholder: PathBuf,
+    quality: dwv_media::VideoQuality,
     limit_bps: Option<u64>,
 ) {
     let st = state.clone();
@@ -629,12 +644,8 @@ fn spawn_video_task(
         let progress_app = emitter.clone();
         let key = id as u64;
 
-        let result = dwv_media::download_video_with_limit(
-            &url,
-            &dir,
-            dwv_media::VideoQuality::Best,
-            limit_bps,
-            move |progress| {
+        let result =
+            dwv_media::download_video_with_limit(&url, &dir, quality, limit_bps, move |progress| {
                 let payload = {
                     let mut guard = progress_state.downloads.lock().unwrap();
                     let Some(entry) = guard.get_mut(&key) else {
@@ -674,9 +685,8 @@ fn spawn_video_task(
                         serde_json::json!({ "id": id, "status": "downloading", "total": total }),
                     );
                 }
-            },
-        )
-        .await;
+            })
+            .await;
 
         let finish = {
             let mut guard = st.downloads.lock().unwrap();
@@ -1148,9 +1158,7 @@ pub async fn remove_download_inner(
         // History row: delete the stored target too when the UI asks for it.
         if let Some(db) = &state.db {
             let mut error = None;
-            if delete_file
-                && let Ok(Some(stored)) = db.get(-id)
-            {
+            if delete_file && let Ok(Some(stored)) = db.get(-id) {
                 error = delete_download_path_retry(&stored.target).await.err();
             }
             let _ = db.delete(-id);
@@ -1205,9 +1213,7 @@ pub async fn remove_download_inner(
     }
 
     let mut error = None;
-    if delete_file
-        && let Some(path) = file_path.as_deref()
-    {
+    if delete_file && let Some(path) = file_path.as_deref() {
         error = delete_download_path_retry(Path::new(path)).await.err();
     }
 
@@ -1597,11 +1603,13 @@ fn queue_pending(
         filename: filename.unwrap_or_else(|| suggest_name(url)),
         dir: state.target_dir().to_string_lossy().to_string(),
     };
-    state
-        .pending
-        .lock()
-        .unwrap()
-        .insert(id, PendingAdd { meta: meta.clone(), payload });
+    state.pending.lock().unwrap().insert(
+        id,
+        PendingAdd {
+            meta: meta.clone(),
+            payload,
+        },
+    );
     let _ = app.emit("pending-download", meta);
 }
 
@@ -1622,6 +1630,7 @@ pub fn cancel_pending(id: u64, state: State<'_, AppState>) {
 pub async fn resolve_pending(
     id: u64,
     dir: String,
+    quality: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<(), String> {
@@ -1642,7 +1651,7 @@ pub async fn resolve_pending(
             add_torrent_inner(&state, &app, &source, Some(&dir)).await?;
         }
         PendingPayload::Video(url) => {
-            add_video_inner(&state, &app, &url, Some(&dir)).await?;
+            add_video_inner(&state, &app, &url, Some(&dir), quality.as_deref()).await?;
         }
     }
     Ok(())
@@ -1804,7 +1813,7 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                         );
                         continue;
                     }
-                    let _ = add_video_inner(&ipc_state, &state, &url, None).await;
+                    let _ = add_video_inner(&ipc_state, &state, &url, None, None).await;
                 }
                 dwv_ipc::Request::Ping => {}
             }
@@ -2440,7 +2449,7 @@ pub async fn add_link(
     };
     match kind {
         "torrent" => add_torrent_inner(state, app, target, None).await,
-        "video" => add_video_inner(state, app, target, None).await,
+        "video" => add_video_inner(state, app, target, None, None).await,
         _ => {
             let id = add_download_inner(state, target).await?;
             emit_added(state, app, id as i64);
@@ -2471,10 +2480,16 @@ pub fn resume_pending(state: &AppState) {
     let queue = state.queue.clone();
     let downloads = state.downloads.clone();
     let db = state.db.clone();
+    let connections = state
+        .settings
+        .lock()
+        .unwrap()
+        .connections_per_download
+        .clamp(1, 32) as usize;
     state.handle.spawn(async move {
         for item in resumable {
             let mut spec = item.to_spec();
-            spec.connections = 1;
+            spec.connections = connections;
             let path = spec.target.clone();
             let filename = file_name_of(&path);
             let category = category_of(&filename);

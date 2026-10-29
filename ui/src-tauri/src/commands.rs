@@ -254,14 +254,21 @@ pub fn apply_event(
 /// Bridges the core queue into Tauri events so the UI can follow real progress.
 pub fn spawn_event_bridge(
     app: AppHandle,
-    downloads: Arc<Mutex<HashMap<u64, DownloadInfo>>>,
+    state: AppState,
     mut events: tokio::sync::mpsc::Receiver<QueueEvent>,
     handle: tokio::runtime::Handle,
 ) {
     handle.spawn(async move {
         while let Some(event) = events.recv().await {
+            if let QueueEvent::Finished { id, path } = &event
+                && torrent_from_download(&state, &app, *id, path)
+            {
+                // The "file" was a .torrent; the picker owns it now.
+                continue;
+            }
+
             let payload = {
-                let mut guard = downloads.lock().unwrap();
+                let mut guard = state.downloads.lock().unwrap();
                 apply_event(&mut guard, &event)
             };
 
@@ -274,6 +281,76 @@ pub fn spawn_event_bridge(
             let _ = app.emit(name, payload);
         }
     });
+}
+
+/// A `.torrent` body saved by the browser under any name/MIME: rename it and
+/// hand it to the torrent picker instead of keeping it as a download.
+fn torrent_from_download(state: &AppState, app: &AppHandle, id: u64, path: &Path) -> bool {
+    if !looks_like_torrent(path) {
+        return false;
+    }
+    let target = torrent_target_path(path);
+    if target != path && std::fs::rename(path, &target).is_err() {
+        return false;
+    }
+
+    let entry = state.downloads.lock().unwrap().remove(&id);
+    if let Some(db) = &state.db {
+        if let Some(row) = entry.as_ref().and_then(|entry| entry.db_id) {
+            let _ = db.delete(row);
+        } else {
+            let _ = db.delete_by_target(path);
+        }
+    }
+    let _ = app.emit("download-removed", serde_json::json!({ "id": id }));
+
+    let source = target.to_string_lossy().to_string();
+    let name = file_name_of(&target);
+    let name = name
+        .strip_suffix(".torrent")
+        .or_else(|| name.strip_suffix(".TORRENT"))
+        .unwrap_or(&name)
+        .to_string();
+    queue_pending(
+        state,
+        app,
+        PendingPayload::Torrent(source.clone()),
+        "torrent",
+        &source,
+        Some(name),
+    );
+    true
+}
+
+pub fn looks_like_torrent(path: &Path) -> bool {
+    const MAX: u64 = 16 << 20;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() > MAX {
+        return false;
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        return false;
+    };
+    bytes.first() == Some(&b'd') && bytes.windows(6).any(|window| window == b"4:info")
+}
+
+pub fn torrent_target_path(path: &Path) -> PathBuf {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("torrent"))
+    {
+        return path.to_path_buf();
+    }
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "download".to_string());
+    let candidate = unique_download_name(dir, &format!("{stem}.torrent"));
+    dir.join(candidate)
 }
 
 fn emit_added(state: &AppState, app: &AppHandle, id: i64) {

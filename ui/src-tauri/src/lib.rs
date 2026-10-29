@@ -37,14 +37,14 @@ pub fn run() {
                 .map_err(|e| format!("No config dir: {e}"))?;
 
             let (state, events) = AppState::new(config_dir.join("settings.json"), data_dir);
-            let downloads = state.downloads.clone();
+            let bridge_state = state.clone();
             let handle = state.handle.clone();
             let link_state = state.clone();
             let app_handle = app.handle().clone();
             app.manage(state);
 
             // The core queue does the real work; this task feeds the UI.
-            spawn_event_bridge(app.handle().clone(), downloads, events, handle);
+            spawn_event_bridge(app.handle().clone(), bridge_state, events, handle);
 
             let ipc_state = app.state::<AppState>().inner().clone();
             crate::commands::start_ipc_server(app.handle().clone(), ipc_state);

@@ -1,8 +1,9 @@
 use dwv_app::commands::{
     AppState, Category, DownloadContext, DownloadInfo, DownloadStatus, VIDEO_ID_BASE,
     add_download_inner, add_download_with_context, apply_event, category_of, download_limit_bps,
-    filename_from_disposition, from_url, infer_kind, is_torrent_source, parse_deep_link,
-    remove_download_inner, resolve_filename, unique_download_name, upload_limit_bps,
+    filename_from_disposition, from_url, infer_kind, is_torrent_source, looks_like_torrent,
+    parse_deep_link, remove_download_inner, resolve_filename, torrent_target_path,
+    unique_download_name, upload_limit_bps,
 };
 use dwv_core::{DownloadSpec, QueueEvent, State as DbState};
 use std::net::TcpListener;
@@ -304,6 +305,26 @@ async fn removing_a_history_row_deletes_the_stored_file() {
 
     assert!(!path.exists(), "history file must be deleted");
     assert!(db.get(row).unwrap().is_none(), "history row must be gone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn detects_torrent_payloads_by_content() {
+    let dir = std::env::temp_dir().join(format!("dwv-sniff-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let torrent = dir.join("13562");
+    std::fs::write(&torrent, b"d8:announce20:http://tracker4:infod4:name3:abc").unwrap();
+    assert!(looks_like_torrent(&torrent));
+    assert_eq!(torrent_target_path(&torrent), dir.join("13562.torrent"));
+
+    let page = dir.join("page.html");
+    std::fs::write(&page, b"<html>login</html>").unwrap();
+    assert!(!looks_like_torrent(&page));
+
+    let named = dir.join("movie.torrent");
+    assert_eq!(torrent_target_path(&named), named);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -96,6 +96,13 @@ function basename(path) {
   return parts[parts.length - 1];
 }
 
+/** Name for a browser fallback: trackers often serve .torrent from download.php. */
+function torrentFilename(url) {
+  const path = (url || "").split(/[?#]/)[0];
+  const base = basename(path).replace(/\.(php|asp|aspx|cgi|jsp)$/i, "");
+  return `${base || "download"}.torrent`;
+}
+
 function fileExtension(url, filename) {
   const name = (filename || url || "").split(/[?#]/)[0];
   const match = name.match(/\.([a-z0-9]+)$/i);
@@ -433,10 +440,11 @@ async function downloadMessage(details) {
 }
 
 async function handleChromeDownload(item, url, context, response, captured, suggest) {
+  const torrent = isTorrent(url, item.filename, item.mime || response?.mime);
   try {
     await settingsReady;
     if (captured && captureOn("captureFiles")) {
-      const message = isTorrent(url, item.filename, item.mime || response?.mime)
+      const message = torrent
         ? { type: "torrent", source: url }
         : await downloadMessage({
           url,
@@ -463,7 +471,7 @@ async function handleChromeDownload(item, url, context, response, captured, sugg
     }
   } finally {
     try {
-      suggest();
+      suggest(torrent ? { filename: torrentFilename(url) } : undefined);
     } catch {}
   }
 }
@@ -493,16 +501,21 @@ function onHeadersReceivedFirefox(details) {
   return { cancel: true };
 }
 
-async function browserFallback(url) {
+async function browserFallback(url, filename) {
   try {
-    await api.downloads.download({ url, saveAs: false });
+    await api.downloads.download({
+      url,
+      saveAs: false,
+      ...(filename ? { filename } : {}),
+    });
   } catch {}
 }
 
 async function firefoxHandOff(details, response) {
   const context = findRecord(contexts, details.url);
   const filename = response?.filename || basename(details.url.split(/[?#]/)[0]);
-  const message = isTorrent(details.url, filename, response?.mime)
+  const torrent = isTorrent(details.url, filename, response?.mime);
+  const message = torrent
     ? { type: "torrent", source: details.url }
     : await downloadMessage({
       url: details.url,
@@ -516,7 +529,10 @@ async function firefoxHandOff(details, response) {
     });
   const reply = await handOff(message);
   if (!reply.ok) {
-    await browserFallback(details.url);
+    await browserFallback(
+      details.url,
+      torrent ? torrentFilename(details.url) : undefined,
+    );
   }
 }
 
@@ -531,7 +547,8 @@ function recentlyHandedOff(url) {
 }
 
 async function handleFirefoxCreated(item, url, context, response) {
-  const message = isTorrent(url, item.filename, item.mime || response?.mime)
+  const torrent = isTorrent(url, item.filename, item.mime || response?.mime);
+  const message = torrent
     ? { type: "torrent", source: url }
     : await downloadMessage({
       url,
@@ -545,7 +562,7 @@ async function handleFirefoxCreated(item, url, context, response) {
     });
   const reply = await handOff(message);
   if (!reply.ok) {
-    await browserFallback(url);
+    await browserFallback(url, torrent ? torrentFilename(url) : undefined);
   }
 }
 

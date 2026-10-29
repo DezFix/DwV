@@ -298,19 +298,13 @@
       <div class="footer">
         <div class="buttons">
           <button class="btn ghost" onclick={onCancel}>{t('adddialog.cancel')}</button>
-          {#if error}
-            <button class="btn primary" onclick={() => confirmDownload(true)}>
-              {t('torrent.all_files')}
-            </button>
-          {:else}
-            <button
-              class="btn primary"
-              onclick={() => confirmDownload()}
-              disabled={loading || !meta || checked.size === 0 || !folder.trim()}
-            >
-              {t('adddialog.download')}
-            </button>
-          {/if}
+          <button
+            class="btn primary"
+            onclick={() => confirmDownload(!meta)}
+            disabled={!folder.trim() || (meta !== null && checked.size === 0)}
+          >
+            {meta ? t('adddialog.download') : t('torrent.all_files')}
+          </button>
         </div>
       </div>
     </div>

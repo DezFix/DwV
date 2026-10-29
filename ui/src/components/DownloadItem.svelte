@@ -111,7 +111,11 @@
     }
   }
 
-  const ext = $derived(item.filename.split('.').pop()?.toUpperCase() ?? '');
+  const ext = $derived(
+    item.kind === 'torrent'
+      ? 'TOR'
+      : (item.filename.split('.').pop()?.toUpperCase() ?? ''),
+  );
 
   async function handlePause() {
     closeContextMenu();
@@ -200,7 +204,7 @@
   </span>
 
   <div class="name-cell">
-    <span class="file-tile cat-{item.category}">{ext}</span>
+    <span class="file-tile cat-{item.kind === 'torrent' ? 'archive' : item.category}">{ext}</span>
     <div class="name-copy">
       <span class="name" title={item.filename}>{item.filename}</span>
       <span class="meta" title={item.url}>{metaLine}</span>

@@ -202,6 +202,7 @@ async function handOff(message) {
   if (!reply.ok && reply.offline && await launchApp(deepLink(message))) {
     reply = await retrySend(message);
   }
+  console.info("[dwv] handoff", message.type, reply.ok ? "ok" : `fail: ${reply.error}`);
   await setBadge(!reply.ok);
   return reply;
 }
@@ -509,6 +510,12 @@ function onHeadersReceivedFirefox(details) {
   if (details.type !== "main_frame") return {};
   if (!isHttp(details.url)) return {};
   const response = recordResponse(details);
+  console.info("[dwv] response", details.url, {
+    mime: response?.mime,
+    attachment: response?.attachment,
+    name: response?.filename,
+    capture: captureOn("captureFiles"),
+  });
   if (!captureOn("captureFiles") || recentlyHandedOff(details.url)) return {};
   const extension = fileExtension(details.url, response?.filename);
   if (!response?.attachment && !FILE_EXTENSIONS.has(extension) && !isTorrentMime(response?.mime)) return {};
@@ -596,6 +603,13 @@ async function handleFirefoxCreated(item, url, context, response) {
 async function onCreatedFirefox(item) {
   const url = item.finalUrl || item.url;
   await settingsReady;
+  console.info("[dwv] download", url, {
+    name: item.filename,
+    mime: item.mime,
+    responseMime: findRecord(responses, url, item.url)?.mime,
+    capture: captureOn("captureFiles"),
+    recent: recentlyHandedOff(url),
+  });
   if (!isHttp(url) || recentlyHandedOff(url) || !captureOn("captureFiles")) return;
   const context = findRecord(contexts, url, item.url);
   const response = findRecord(responses, url, item.url);

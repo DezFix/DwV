@@ -40,7 +40,21 @@ execFileSync(
   { stdio: 'inherit' },
 )
 
+// Chrome has no load-from-file flow without the Web Store, so the same sources
+// ship as a zip for "Load unpacked".
+const chromeSource = join(here, 'chrome')
+const chromeFile = join(outDir, `dwv-chrome-${version}.zip`)
+const chromeEntries = readdirSync(chromeSource).filter(name => name !== 'manifest.json')
+
+execFileSync(
+  'tar',
+  ['--format', 'zip', '-c', '-f', chromeFile, '-C', chromeSource, 'manifest.json', ...chromeEntries],
+  { stdio: 'inherit' },
+)
+
 console.log(`Built ${outFile}`)
+console.log(`Built ${chromeFile}`)
 console.log('Install: about:debugging#/runtime/this-firefox -> Load Temporary Add-on -> pick the .xpi')
 console.log('For a permanent install set xpinstall.signatures.required=false in about:config')
 console.log('and use about:addons -> Install Add-on From File.')
+console.log('Chrome: chrome://extensions -> enable Developer mode -> Load unpacked -> unpacked folder from the zip')

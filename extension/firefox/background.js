@@ -276,6 +276,7 @@ function mediaTitle(url) {
 
 function recordMedia(details) {
   if (!isHttp(details.url)) return;
+  recordResponse(details);
   if (details.tabId == null || details.tabId < 0) return;
 
   if (details.type === "main_frame") {
@@ -756,13 +757,6 @@ if (IS_CHROME) {
 } else {
   api.webRequest.onSendHeaders.addListener(onSendHeaders, FILTER, ["requestHeaders"]);
   api.webRequest.onHeadersReceived.addListener(recordMedia, FILTER, ["responseHeaders"]);
-  api.webRequest.onHeadersReceived.addListener(
-    (details) => {
-      recordResponse(details);
-    },
-    FILTER,
-    ["responseHeaders"],
-  );
   api.webRequest.onHeadersReceived.addListener(
     onHeadersReceivedFirefox,
     { urls: FILTER.urls, types: ["main_frame"] },

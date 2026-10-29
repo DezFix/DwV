@@ -239,8 +239,11 @@
 
       {#if loading}
         <div class="state">{t('torrent.loading')}</div>
+        <p class="wait-hint">{t('torrent.waiting')}</p>
       {:else if error}
-        <div class="state error">{error}</div>
+        <div class="state error" title={error}>
+          {error === 'metadata-timeout' ? t('torrent.timeout') : t('torrent.load_failed')}
+        </div>
       {:else if meta}
         <div class="controls">
           <button class="link" onclick={() => selectAll(true)}>{t('torrent.all')}</button>
@@ -281,16 +284,16 @@
             </div>
           {/each}
         </div>
-
-        <span class="label">{t('adddialog.folder')}</span>
-        <div class="folder">
-          <input type="text" class="input" bind:value={folder} placeholder="—" />
-          <button class="btn" onclick={browse}>
-            <Icon name="folder" size={15} />
-            <span>{t('settings.browse')}</span>
-          </button>
-        </div>
       {/if}
+
+      <span class="label">{t('adddialog.folder')}</span>
+      <div class="folder">
+        <input type="text" class="input" bind:value={folder} placeholder="—" />
+        <button class="btn" onclick={browse}>
+          <Icon name="folder" size={15} />
+          <span>{t('settings.browse')}</span>
+        </button>
+      </div>
 
       <div class="footer">
         <div class="buttons">
@@ -417,6 +420,12 @@
   .state.error {
     color: var(--error);
     word-break: break-word;
+  }
+
+  .wait-hint {
+    margin: -8px 0 10px;
+    font-size: 11.5px;
+    color: var(--text-muted);
   }
 
   .controls {

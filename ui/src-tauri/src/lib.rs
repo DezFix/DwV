@@ -65,8 +65,8 @@ pub fn run() {
                         let rt = state.handle.clone();
                         rt.spawn(async move {
                             let ask = state.settings.lock().unwrap().ask_save_path;
-                            let torrent = kind.as_deref() == Some("torrent")
-                                || target.starts_with("magnet:");
+                            let torrent =
+                                kind.as_deref() == Some("torrent") || target.starts_with("magnet:");
                             if ask || torrent {
                                 crate::commands::queue_deep_link(
                                     &state,

@@ -137,6 +137,26 @@ async fn torrent_is_accepted() {
 }
 
 #[tokio::test]
+async fn torrent_tracker_url_without_extension_is_accepted() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let addr = serve(0, tx).await.unwrap();
+
+    let response = raw(
+        addr,
+        &post(
+            addr,
+            "/ipc",
+            r#"{"type":"torrent","source":"https://tracker.example/download.php?id=13562"}"#,
+        ),
+    )
+    .await;
+
+    assert_eq!(status(&response), 200, "{response}");
+    assert_eq!(json(&response)["ok"], true);
+    assert!(matches!(rx.recv().await.unwrap(), Request::Torrent { .. }));
+}
+
+#[tokio::test]
 async fn ping_is_answered_and_reaches_the_app() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let addr = serve(0, tx).await.unwrap();

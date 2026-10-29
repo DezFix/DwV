@@ -80,7 +80,12 @@ function isHttp(url) {
   return /^https?:\/\//i.test(url || "");
 }
 
-function isTorrent(url, filename) {
+function isTorrentMime(mime) {
+  return /application\/(x-)?bittorrent/i.test(mime || "");
+}
+
+function isTorrent(url, filename, mime) {
+  if (isTorrentMime(mime)) return true;
   return /^magnet:/i.test(url || "")
     || /\.torrent(?:[?#]|$)/i.test(url || "")
     || fileExtension(url, filename) === "torrent";
@@ -431,7 +436,7 @@ async function handleChromeDownload(item, url, context, response, captured, sugg
   try {
     await settingsReady;
     if (captured && captureOn("captureFiles")) {
-      const message = isTorrent(url, item.filename)
+      const message = isTorrent(url, item.filename, item.mime || response?.mime)
         ? { type: "torrent", source: url }
         : await downloadMessage({
           url,
@@ -470,7 +475,7 @@ function onDeterminingFilename(item, suggest) {
   const extension = fileExtension(url, item.filename);
   const captured = isHttp(url)
     && (!context || context.method === "GET")
-    && (Boolean(response?.attachment) || FILE_EXTENSIONS.has(extension));
+    && (Boolean(response?.attachment) || FILE_EXTENSIONS.has(extension) || isTorrentMime(item.mime || response?.mime));
   handleChromeDownload(item, url, context, response, captured, suggest).catch(() => {});
   return true;
 }
@@ -482,7 +487,7 @@ function onHeadersReceivedFirefox(details) {
   const response = recordResponse(details);
   if (!captureOn("captureFiles") || recentlyHandedOff(details.url)) return {};
   const extension = fileExtension(details.url, response?.filename);
-  if (!response?.attachment && !FILE_EXTENSIONS.has(extension)) return {};
+  if (!response?.attachment && !FILE_EXTENSIONS.has(extension) && !isTorrentMime(response?.mime)) return {};
   remember(handedOff, details.url, Date.now());
   firefoxHandOff(details, response).catch(() => {});
   return { cancel: true };
@@ -497,7 +502,7 @@ async function browserFallback(url) {
 async function firefoxHandOff(details, response) {
   const context = findRecord(contexts, details.url);
   const filename = response?.filename || basename(details.url.split(/[?#]/)[0]);
-  const message = isTorrent(details.url, filename)
+  const message = isTorrent(details.url, filename, response?.mime)
     ? { type: "torrent", source: details.url }
     : await downloadMessage({
       url: details.url,
@@ -526,7 +531,7 @@ function recentlyHandedOff(url) {
 }
 
 async function handleFirefoxCreated(item, url, context, response) {
-  const message = isTorrent(url, item.filename)
+  const message = isTorrent(url, item.filename, item.mime || response?.mime)
     ? { type: "torrent", source: url }
     : await downloadMessage({
       url,
@@ -552,7 +557,11 @@ async function onCreatedFirefox(item) {
   const response = findRecord(responses, url, item.url);
   if (context && context.method !== "GET") return;
   const extension = fileExtension(url, item.filename);
-  if (!response?.attachment && !FILE_EXTENSIONS.has(extension)) return;
+  if (
+    !response?.attachment
+    && !FILE_EXTENSIONS.has(extension)
+    && !isTorrentMime(item.mime || response?.mime)
+  ) return;
   remember(handedOff, url, Date.now());
   api.downloads.cancel(item.id).catch(() => {});
   api.downloads.removeFile(item.id).catch(() => {});

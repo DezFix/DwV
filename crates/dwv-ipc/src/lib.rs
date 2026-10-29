@@ -569,16 +569,13 @@ fn validate_torrent_source(source: &str) -> Result<(), String> {
     if source.starts_with("magnet:") {
         return Ok(());
     }
-    if let Some(rest) = source
-        .strip_prefix("http://")
-        .or_else(|| source.strip_prefix("https://"))
-    {
-        let path = rest.split(['?', '#']).next().unwrap_or("");
-        if path.ends_with(".torrent") {
-            return Ok(());
-        }
+    // Trackers often serve .torrent files from URLs without the extension
+    // (`download.php?id=...`), so any http(s) source is allowed; librqbit
+    // rejects it later if the body is not a torrent.
+    if source.starts_with("http://") || source.starts_with("https://") {
+        return Ok(());
     }
-    Err("source must be a magnet link or an http(s) .torrent URL".to_string())
+    Err("source must be a magnet link or an http(s) URL".to_string())
 }
 
 fn has_crlf(value: &str) -> bool {

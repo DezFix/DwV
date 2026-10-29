@@ -1875,13 +1875,13 @@ pub async fn inspect_torrent(
         .unwrap_or_else(|| state.target_dir());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    // Magnets wait for metadata from peers; don't keep the dialog spinning forever.
+    // Magnets wait for metadata from peers; two minutes is the practical limit.
     let inspected = tokio::time::timeout(
-        Duration::from_secs(40),
+        Duration::from_secs(120),
         state.torrents.inspect(&source, &dir),
     )
     .await
-    .map_err(|_| "Не удалось получить список файлов: трекер не ответил".to_string())?
+    .map_err(|_| "metadata-timeout".to_string())?
     .map_err(|error| error.to_string())?;
 
     Ok(TorrentMetaInfo {
@@ -2702,12 +2702,12 @@ pub fn register_protocol() {
             None,
             "URL:magnet Protocol",
         );
-        reg_add(r"HKCU\Software\Classes\DwV.magnet", Some("URL Protocol"), "");
         reg_add(
-            r"HKCU\Software\Classes\DwV.magnet\DefaultIcon",
-            None,
-            &icon,
+            r"HKCU\Software\Classes\DwV.magnet",
+            Some("URL Protocol"),
+            "",
         );
+        reg_add(r"HKCU\Software\Classes\DwV.magnet\DefaultIcon", None, &icon);
         reg_add(
             r"HKCU\Software\Classes\DwV.magnet\shell\open\command",
             None,

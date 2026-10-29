@@ -387,6 +387,19 @@
     }
   }
 
+  function torrentLabel(value: string) {
+    if (/^magnet:/i.test(value)) {
+      try {
+        const name = new URL(value).searchParams.get('dn');
+        if (name?.trim()) return name.trim();
+      } catch {
+        // Malformed magnet: fall through to the generic label.
+      }
+      return t('kind.torrent');
+    }
+    return suggestedName(value).replace(/\.torrent$/i, '') || t('kind.torrent');
+  }
+
   async function handleAdd(url: string, kind: AddKind) {
     const value = url.trim();
     if (!value) return;
@@ -400,7 +413,7 @@
           key: `local-${addSeq++}`,
           kind: torrent ? 'torrent' : kind,
           url: value,
-          filename: suggestedName(value),
+          filename: torrent ? torrentLabel(value) : suggestedName(value),
           dir: settingsStore.download_dir || defaultDir,
         },
       ];

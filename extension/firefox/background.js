@@ -557,8 +557,8 @@ async function firefoxHandOff(details, response) {
     });
   const reply = await handOff(message);
   if (!reply.ok) {
-    // Let a retry of the same link be captured again.
-    handedOff.delete(details.url);
+    // Keep the marker: the fallback below triggers onCreated for the same URL
+    // and must not be cancelled and handed off again in a loop.
     await browserFallback(
       details.url,
       torrent ? torrentFilename(details.url) : undefined,
@@ -596,7 +596,6 @@ async function handleFirefoxCreated(item, url, context, response) {
     });
   const reply = await handOff(message);
   if (!reply.ok) {
-    handedOff.delete(url);
     await browserFallback(url, torrent ? torrentFilename(url) : undefined);
   }
 }
@@ -728,9 +727,9 @@ api.runtime.onMessage?.addListener((message, sender, sendResponse) => {
   }
 });
 
-api.contextMenus.onClicked.addListener((info) => {
-  onMenuClicked(info).catch(() => {});
-});
+api.contextMenus.onClicked.addListener((info) =>
+  onMenuClicked(info).catch(() => {})
+);
 
 api.tabs?.onRemoved?.addListener((tabId) => {
   mediaByTab.delete(tabId);

@@ -3,7 +3,7 @@
 Расширение проверено в LibreWolf. Также работает в Firefox 115+ и Chrome 116+
 (в Chrome — через «Загрузить распакованное»).
 
-Файл сборки: `extension/dist/dwv-1.2.7.xpi`.
+Файл сборки: `extension/dist/dwv-1.2.8.xpi`.
 
 ## Перед установкой
 
@@ -29,7 +29,7 @@ reg add "HKCU\Software\Classes\dwv\shell\open\command" /ve /d "\"C:\Path\To\dwv.
 
 1. Откройте `about:debugging#/runtime/this-firefox`.
 2. Нажмите **Load Temporary Add-on…** (Загрузить временное дополнение).
-3. Выберите `extension/dist/dwv-1.2.7.xpi` или `extension/firefox/manifest.json`.
+3. Выберите `extension/dist/dwv-1.2.8.xpi` или `extension/firefox/manifest.json`.
 4. Если браузер спросит доступ к сайтам, разрешите его.
 
 После перезапуска браузера повторите шаги 1–3.
@@ -47,7 +47,7 @@ reg add "HKCU\Software\Classes\dwv\shell\open\command" /ve /d "\"C:\Path\To\dwv.
    Если параметр уже есть, переключите его в `false`.
 3. Откройте `about:addons`, нажмите шестерёнку и выберите
    **Install Add-on From File…** (Установить дополнение из файла).
-4. Укажите `extension/dist/dwv-1.2.7.xpi` и подтвердите установку.
+4. Укажите `extension/dist/dwv-1.2.8.xpi` и подтвердите установку.
 
 ## Проверка
 

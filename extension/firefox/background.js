@@ -439,13 +439,29 @@ async function downloadMessage(details) {
   };
 }
 
+/** A .torrent link needs the same cookies as the page: trackers reject anonymous fetches. */
+async function torrentMessage(url, details) {
+  const cookieHeader = await downloadCookies(url, url, details.storeId);
+  return {
+    type: "torrent",
+    source: url,
+    referrer: details.referrer || undefined,
+    cookies: cookieHeader || undefined,
+    user_agent: details.userAgent || globalThis.navigator?.userAgent || "",
+  };
+}
+
 async function handleChromeDownload(item, url, context, response, captured, suggest) {
   const torrent = isTorrent(url, item.filename, item.mime || response?.mime);
   try {
     await settingsReady;
     if (captured && captureOn("captureFiles")) {
       const message = torrent
-        ? { type: "torrent", source: url }
+        ? await torrentMessage(url, {
+          referrer: item.referrer || context?.referrer,
+          storeId: item.storeId,
+          userAgent: context?.userAgent,
+        })
         : await downloadMessage({
           url,
           finalUrl: item.finalUrl || url,
@@ -516,7 +532,11 @@ async function firefoxHandOff(details, response) {
   const filename = response?.filename || basename(details.url.split(/[?#]/)[0]);
   const torrent = isTorrent(details.url, filename, response?.mime);
   const message = torrent
-    ? { type: "torrent", source: details.url }
+    ? await torrentMessage(details.url, {
+      referrer: context?.referrer || details.originUrl || details.documentUrl,
+      storeId: details.cookieStoreId,
+      userAgent: context?.userAgent,
+    })
     : await downloadMessage({
       url: details.url,
       finalUrl: details.url,
@@ -549,7 +569,11 @@ function recentlyHandedOff(url) {
 async function handleFirefoxCreated(item, url, context, response) {
   const torrent = isTorrent(url, item.filename, item.mime || response?.mime);
   const message = torrent
-    ? { type: "torrent", source: url }
+    ? await torrentMessage(url, {
+      referrer: item.referrer || context?.referrer,
+      storeId: item.storeId,
+      userAgent: context?.userAgent,
+    })
     : await downloadMessage({
       url,
       finalUrl: item.finalUrl || url,
@@ -597,7 +621,10 @@ async function onMenuClicked(info) {
   const url = info.linkUrl || info.srcUrl;
   if (!url) return;
   if (isTorrent(url)) {
-    await handOff({ type: "torrent", source: url });
+    await handOff(await torrentMessage(url, {
+      referrer: info.pageUrl,
+      storeId: info.cookieStoreId,
+    }));
     return;
   }
   if (!isHttp(url)) return;

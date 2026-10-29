@@ -1,5 +1,26 @@
 const api = globalThis.browser ?? globalThis.chrome;
 
+function t(key, substitution) {
+  try {
+    return api.i18n?.getMessage(key, substitution) || key;
+  } catch {
+    return key;
+  }
+}
+
+function localize() {
+  const ui = api.i18n?.getUILanguage?.() || navigator.language || "en";
+  document.documentElement.lang = String(ui).split(/[-_]/)[0];
+  for (const node of document.querySelectorAll("[data-i18n]")) {
+    node.textContent = t(node.dataset.i18n);
+  }
+  for (const node of document.querySelectorAll("[data-i18n-html]")) {
+    node.innerHTML = t(node.dataset.i18nHtml);
+  }
+}
+
+localize();
+
 const dot = document.getElementById("dot");
 const statusText = document.getElementById("status");
 const enabled = document.getElementById("enabled");
@@ -30,7 +51,7 @@ async function activeTab() {
 
 async function refreshStatus() {
   dot.className = "dot";
-  statusText.textContent = "проверка…";
+  statusText.textContent = t("statusChecking");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 2500);
   try {
@@ -40,11 +61,11 @@ async function refreshStatus() {
     });
     if (response.status !== 200) throw new Error();
     dot.className = "dot online";
-    statusText.textContent = "DwV запущен";
+    statusText.textContent = t("statusOnline");
     return true;
   } catch {
     dot.className = "dot offline";
-    statusText.textContent = "DwV не запущен";
+    statusText.textContent = t("statusOffline");
     return false;
   } finally {
     clearTimeout(timer);
@@ -109,7 +130,7 @@ function mergeVideos(groups) {
 
 function formatSize(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "";
-  const units = ["Б", "КБ", "МБ", "ГБ"];
+  const units = [t("unitB"), t("unitKB"), t("unitMB"), t("unitGB")];
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
@@ -142,13 +163,13 @@ function hostOf(url) {
 }
 
 function renderPagePreview(meta, tab) {
-  const title = meta.title || tab?.title || "Видео на странице";
+  const title = meta.title || tab?.title || t("videosOnPage");
   const site = meta.site || hostOf(tab?.url || "");
   const author = meta.author || "";
   previewTitle.textContent = title;
   previewTitle.title = title;
   previewMeta.textContent = [site, author].filter(Boolean).join(" · ");
-  previewDownload.textContent = meta.found ? "Скачать" : "Скачать видео со страницы";
+  previewDownload.textContent = meta.found ? t("download") : t("downloadPageVideo");
   previewDownload.dataset.url = tab?.url || meta.url || "";
   if (meta.thumbnail) {
     previewImg.src = meta.thumbnail;
@@ -228,7 +249,7 @@ function renderVideos(videos, tabId) {
 
     const name = document.createElement("div");
     name.className = "video-name";
-    name.textContent = video.title || "Видео";
+    name.textContent = video.title || t("video");
     name.title = video.url;
 
     const meta = document.createElement("div");
@@ -237,7 +258,7 @@ function renderVideos(videos, tabId) {
     const length = video.duration ? formatTime(video.duration) : "";
     const size = formatSize(video.size);
     meta.textContent = [
-      video.kind === "stream" ? "поток" : "файл",
+      video.kind === "stream" ? t("stream") : t("file"),
       size,
       length,
       resolution,
@@ -251,13 +272,13 @@ function renderVideos(videos, tabId) {
 
     const download = document.createElement("button");
     download.type = "button";
-    download.textContent = "Скачать";
+    download.textContent = t("download");
     download.disabled = !enabled.checked;
     download.addEventListener("click", () => downloadVideo(video, download, status));
 
     const watch = document.createElement("button");
     watch.type = "button";
-    watch.textContent = "Смотреть";
+    watch.textContent = t("watch");
     watch.addEventListener("click", () => watchOnPage(tabId, watch, status));
 
     actions.append(download, watch);
@@ -269,7 +290,7 @@ function renderVideos(videos, tabId) {
 async function sendVideoUrl(url, button, status) {
   const label = button.textContent;
   button.disabled = true;
-  button.textContent = "Отправка...";
+  button.textContent = t("sending");
   status.textContent = "";
   let reply;
   try {
@@ -278,15 +299,15 @@ async function sendVideoUrl(url, button, status) {
       message: { type: "video", url },
     });
   } catch (error) {
-    reply = { ok: false, error: error?.message || "Не удалось отправить в DwV" };
+    reply = { ok: false, error: error?.message || t("sendFailed") };
   }
   if (reply?.ok) {
-    button.textContent = "Отправлено";
+    button.textContent = t("sent");
     return;
   }
   button.disabled = false;
   button.textContent = label;
-  status.textContent = "Не получилось: " + (reply?.error || "DwV не ответил");
+  status.textContent = t("sendError", reply?.error || t("appNoReply"));
 }
 
 function downloadVideo(video, button, status) {
@@ -302,9 +323,9 @@ async function watchOnPage(tabId, button, status) {
       window.close();
       return;
     }
-    status.textContent = reply?.error || "Видео не найдено на странице";
+    status.textContent = reply?.error || t("videoNotFound");
   } catch {
-    status.textContent = "Скрипт страницы недоступен";
+    status.textContent = t("contentUnavailable");
   }
   button.disabled = false;
 }
@@ -319,7 +340,7 @@ previewImg.addEventListener("error", () => previewThumb.classList.remove("has-im
 previewDownload.addEventListener("click", async () => {
   const url = previewDownload.dataset.url || "";
   if (!url || !/^https?:/i.test(url)) {
-    setPageNotice("Откройте обычную страницу сайта", "bad");
+    setPageNotice(t("openRegularPage"), "bad");
     return;
   }
   await sendVideoUrl(url, previewDownload, pageNotice);
@@ -342,7 +363,7 @@ refreshButton.addEventListener("click", scanVideos);
 
 openApp.addEventListener("click", async () => {
   openApp.disabled = true;
-  openApp.textContent = "Открываю…";
+  openApp.textContent = t("opening");
   setNotice("");
   let reply;
   try {
@@ -351,16 +372,16 @@ openApp.addEventListener("click", async () => {
       message: { type: "ping" },
     });
   } catch (error) {
-    reply = { ok: false, error: error?.message || "нет связи с расширением" };
+    reply = { ok: false, error: error?.message || t("noExtensionLink") };
   }
   if (reply?.ok) {
-    setNotice("DwV запущен или уже открыт", "good");
+    setNotice(t("appRunningOrOpen"), "good");
     refreshStatus();
   } else {
-    setNotice("Не удалось открыть DwV" + (reply?.error ? `: ${reply.error}` : ""), "bad");
+    setNotice(t("openFailed") + (reply?.error ? `: ${reply.error}` : ""), "bad");
   }
   openApp.disabled = false;
-  openApp.textContent = "Открыть DwV";
+  openApp.textContent = t("openApp");
 });
 
 (async () => {

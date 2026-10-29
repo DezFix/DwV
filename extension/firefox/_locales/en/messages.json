@@ -1,0 +1,152 @@
+{
+  "extDescription": {
+    "message": "Intercepts files, video and torrents for the DwV download manager",
+    "description": "Extension description in the browser and on AMO"
+  },
+  "statusChecking": {
+    "message": "checking…"
+  },
+  "statusOnline": {
+    "message": "DwV is running"
+  },
+  "statusOffline": {
+    "message": "DwV is not running"
+  },
+  "enabledTitle": {
+    "message": "Extension enabled"
+  },
+  "enabledHint": {
+    "message": "Automatic capture and hand-off"
+  },
+  "filesTitle": {
+    "message": "Capture files"
+  },
+  "filesHint": {
+    "message": "Attachments and links to files"
+  },
+  "videoTitle": {
+    "message": "Capture video"
+  },
+  "videoHint": {
+    "message": "Video on the page and in the network"
+  },
+  "videosOnPage": {
+    "message": "Video on this page"
+  },
+  "refresh": {
+    "message": "Refresh"
+  },
+  "download": {
+    "message": "Download"
+  },
+  "downloadPageVideo": {
+    "message": "Download page video"
+  },
+  "openApp": {
+    "message": "Open DwV"
+  },
+  "opening": {
+    "message": "Opening…"
+  },
+  "appRunningOrOpen": {
+    "message": "DwV is running or already open"
+  },
+  "openFailed": {
+    "message": "Could not open DwV"
+  },
+  "video": {
+    "message": "Video"
+  },
+  "stream": {
+    "message": "stream"
+  },
+  "file": {
+    "message": "file"
+  },
+  "watch": {
+    "message": "Watch"
+  },
+  "sending": {
+    "message": "Sending…"
+  },
+  "sent": {
+    "message": "Sent"
+  },
+  "sendFailed": {
+    "message": "Could not send to DwV"
+  },
+  "sendError": {
+    "message": "Failed: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      }
+    }
+  },
+  "appNoReply": {
+    "message": "DwV did not respond"
+  },
+  "videoNotFound": {
+    "message": "No video found on the page"
+  },
+  "contentUnavailable": {
+    "message": "Page script is unavailable"
+  },
+  "openRegularPage": {
+    "message": "Open a regular website page"
+  },
+  "noExtensionLink": {
+    "message": "no connection to the extension"
+  },
+  "noVideoOnPage": {
+    "message": "There is no video on this page"
+  },
+  "menuVideoPage": {
+    "message": "Download video from this page"
+  },
+  "pluginDisabled": {
+    "message": "Extension is disabled"
+  },
+  "unitB": {
+    "message": "B"
+  },
+  "unitKB": {
+    "message": "KB"
+  },
+  "unitMB": {
+    "message": "MB"
+  },
+  "unitGB": {
+    "message": "GB"
+  },
+  "optionsTitle": {
+    "message": "DwV — extension settings"
+  },
+  "optionsLead": {
+    "message": "The extension intercepts files and video and hands them to the download manager."
+  },
+  "captureSection": {
+    "message": "Capture"
+  },
+  "captureVideoHint": {
+    "message": "Send videos found on the page to DwV"
+  },
+  "captureFilesHint": {
+    "message": "Files the browser would save by itself"
+  },
+  "connectionSection": {
+    "message": "Connection"
+  },
+  "connectionText": {
+    "message": "The extension talks to the app at <code>http://127.0.0.1:41763/</code>. If DwV is closed, the extension tries to start it through the <code>dwv://</code> link."
+  },
+  "connectionChecking": {
+    "message": "Checking the connection…"
+  },
+  "connectionOk": {
+    "message": "Connected — DwV is running."
+  },
+  "connectionFail": {
+    "message": "No connection — start the DwV app."
+  }
+}

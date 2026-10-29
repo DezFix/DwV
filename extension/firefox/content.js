@@ -4,6 +4,14 @@
  */
 const api = globalThis.browser ?? globalThis.chrome;
 
+function t(key, substitution) {
+  try {
+    return api.i18n?.getMessage(key, substitution) || key;
+  } catch {
+    return key;
+  }
+}
+
 const MEDIA_EXTENSIONS = /\.(m3u8|mpd|mp4|m4v|webm|mkv|mov|avi|flv)(?:[?#]|$)/i;
 const STREAM_EXTENSIONS = /\.(m3u8|mpd)(?:[?#]|$)/i;
 const MAX_VIDEOS = 50;
@@ -21,9 +29,9 @@ function absoluteUrl(value) {
 function mediaTitle(url) {
   try {
     const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || "");
-    return name || document.title || "Видео на странице";
+    return name || document.title || t("videosOnPage");
   } catch {
-    return document.title || "Видео на странице";
+    return document.title || t("videosOnPage");
   }
 }
 
@@ -31,7 +39,7 @@ function makeItem(url, overrides = {}) {
   return {
     url,
     kind: STREAM_EXTENSIONS.test(url) ? "stream" : "file",
-    title: document.title || "Видео на странице",
+    title: document.title || t("videosOnPage"),
     poster: "",
     width: 0,
     height: 0,
@@ -53,7 +61,7 @@ function collectVideos() {
     const source = absoluteUrl(video.currentSrc || video.src || "");
     if (source) {
       add(source, {
-        title: video.title || video.getAttribute("aria-label") || document.title || "Видео на странице",
+        title: video.title || video.getAttribute("aria-label") || document.title || t("videosOnPage"),
         poster: absoluteUrl(video.poster || ""),
         width: video.videoWidth || Math.round(video.getBoundingClientRect().width) || 0,
         height: video.videoHeight || Math.round(video.getBoundingClientRect().height) || 0,
@@ -65,7 +73,7 @@ function collectVideos() {
       const url = absoluteUrl(sourceEl.getAttribute("src") || "");
       if (!url || !MEDIA_EXTENSIONS.test(url)) continue;
       add(url, {
-        title: video.title || document.title || "Видео на странице",
+        title: video.title || document.title || t("videosOnPage"),
         poster: absoluteUrl(video.poster || ""),
         width: video.videoWidth || 0,
         height: video.videoHeight || 0,
@@ -145,7 +153,7 @@ api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "watch-on-page") {
     const target = document.querySelector("video");
     if (!target) {
-      sendResponse({ ok: false, error: "На странице нет видео" });
+      sendResponse({ ok: false, error: t("noVideoOnPage") });
       return;
     }
     target.scrollIntoView({ behavior: "smooth", block: "center" });

@@ -1,0 +1,152 @@
+{
+  "extDescription": {
+    "message": "Перехват файлов, видео и торрентов для менеджера загрузок DwV",
+    "description": "Описание расширения в браузере и на AMO"
+  },
+  "statusChecking": {
+    "message": "проверка…"
+  },
+  "statusOnline": {
+    "message": "DwV запущен"
+  },
+  "statusOffline": {
+    "message": "DwV не запущен"
+  },
+  "enabledTitle": {
+    "message": "Плагин включён"
+  },
+  "enabledHint": {
+    "message": "Автоматический перехват и передача"
+  },
+  "filesTitle": {
+    "message": "Перехватывать файлы"
+  },
+  "filesHint": {
+    "message": "Вложения и ссылки на файлы"
+  },
+  "videoTitle": {
+    "message": "Перехватывать видео"
+  },
+  "videoHint": {
+    "message": "Видео на странице и в сети"
+  },
+  "videosOnPage": {
+    "message": "Видео на странице"
+  },
+  "refresh": {
+    "message": "Обновить"
+  },
+  "download": {
+    "message": "Скачать"
+  },
+  "downloadPageVideo": {
+    "message": "Скачать видео со страницы"
+  },
+  "openApp": {
+    "message": "Открыть DwV"
+  },
+  "opening": {
+    "message": "Открываю…"
+  },
+  "appRunningOrOpen": {
+    "message": "DwV запущен или уже открыт"
+  },
+  "openFailed": {
+    "message": "Не удалось открыть DwV"
+  },
+  "video": {
+    "message": "Видео"
+  },
+  "stream": {
+    "message": "поток"
+  },
+  "file": {
+    "message": "файл"
+  },
+  "watch": {
+    "message": "Смотреть"
+  },
+  "sending": {
+    "message": "Отправка…"
+  },
+  "sent": {
+    "message": "Отправлено"
+  },
+  "sendFailed": {
+    "message": "Не удалось отправить в DwV"
+  },
+  "sendError": {
+    "message": "Не получилось: $ERROR$",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      }
+    }
+  },
+  "appNoReply": {
+    "message": "DwV не ответил"
+  },
+  "videoNotFound": {
+    "message": "Видео не найдено на странице"
+  },
+  "contentUnavailable": {
+    "message": "Скрипт страницы недоступен"
+  },
+  "openRegularPage": {
+    "message": "Откройте обычную страницу сайта"
+  },
+  "noExtensionLink": {
+    "message": "нет связи с расширением"
+  },
+  "noVideoOnPage": {
+    "message": "На странице нет видео"
+  },
+  "menuVideoPage": {
+    "message": "Скачать видео со страницы"
+  },
+  "pluginDisabled": {
+    "message": "Плагин выключен"
+  },
+  "unitB": {
+    "message": "Б"
+  },
+  "unitKB": {
+    "message": "КБ"
+  },
+  "unitMB": {
+    "message": "МБ"
+  },
+  "unitGB": {
+    "message": "ГБ"
+  },
+  "optionsTitle": {
+    "message": "DwV — настройки расширения"
+  },
+  "optionsLead": {
+    "message": "Расширение перехватывает файлы и видео и передаёт их менеджеру загрузок."
+  },
+  "captureSection": {
+    "message": "Захват"
+  },
+  "captureVideoHint": {
+    "message": "Отправлять найденные на странице видео в DwV"
+  },
+  "captureFilesHint": {
+    "message": "Файлы, которые браузер хочет сохранить сам"
+  },
+  "connectionSection": {
+    "message": "Подключение"
+  },
+  "connectionText": {
+    "message": "Расширение общается с приложением по адресу <code>http://127.0.0.1:41763/</code>. Если DwV закрыт, расширение попробует запустить его по ссылке <code>dwv://</code>."
+  },
+  "connectionChecking": {
+    "message": "Проверка соединения…"
+  },
+  "connectionOk": {
+    "message": "Соединение установлено — DwV запущен."
+  },
+  "connectionFail": {
+    "message": "Нет соединения — запустите приложение DwV."
+  }
+}

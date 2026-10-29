@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <title>DwV — настройки расширения</title>
+  <title data-i18n="optionsTitle">DwV — настройки расширения</title>
   <style>
     :root {
       --bg: #ffffff;
@@ -82,33 +82,33 @@
 <body>
   <div class="wrap">
     <h1>DwV</h1>
-    <p class="lead">Расширение перехватывает файлы и видео и передаёт их менеджеру загрузок.</p>
+    <p class="lead" data-i18n="optionsLead">Расширение перехватывает файлы и видео и передаёт их менеджеру загрузок.</p>
 
     <section>
-      <h2>Захват</h2>
+      <h2 data-i18n="captureSection">Захват</h2>
       <div class="row">
         <div>
-          <span>Перехватывать видео</span>
-          <div class="hint">Отправлять найденные на странице видео в DwV</div>
+          <span data-i18n="videoTitle">Перехватывать видео</span>
+          <div class="hint" data-i18n="captureVideoHint">Отправлять найденные на странице видео в DwV</div>
         </div>
         <label class="toggle"><input type="checkbox" id="capture-video"><span class="slider"></span></label>
       </div>
       <div class="row">
         <div>
-          <span>Перехватывать вложения</span>
-          <div class="hint">Файлы, которые браузер хочет сохранить сам</div>
+          <span data-i18n="filesTitle">Перехватывать вложения</span>
+          <div class="hint" data-i18n="captureFilesHint">Файлы, которые браузер хочет сохранить сам</div>
         </div>
         <label class="toggle"><input type="checkbox" id="capture-files"><span class="slider"></span></label>
       </div>
     </section>
 
     <section>
-      <h2>Подключение</h2>
-      <p class="hint" style="margin-bottom:10px">
+      <h2 data-i18n="connectionSection">Подключение</h2>
+      <p class="hint" style="margin-bottom:10px" data-i18n-html="connectionText">
         Расширение общается с приложением по адресу <code>http://127.0.0.1:41763/</code>.
         Если DwV закрыт, расширение попробует запустить его по ссылке <code>dwv://</code>.
       </p>
-      <div class="status" id="status">Проверка соединения…</div>
+      <div class="status" id="status" data-i18n="connectionChecking">Проверка соединения…</div>
     </section>
   </div>
 

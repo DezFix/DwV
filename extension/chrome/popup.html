@@ -271,14 +271,14 @@
   <header>
     <img class="logo" src="icon-48.png" alt="DwV">
     <span class="title">DwV</span>
-    <span class="status"><span class="dot" id="dot"></span><span id="status">проверка…</span></span>
+    <span class="status"><span class="dot" id="dot"></span><span id="status" data-i18n="statusChecking">проверка…</span></span>
   </header>
 
   <section>
     <div class="switch-row">
       <div>
-        <span>Плагин включён</span>
-        <div class="hint">Автоматический перехват и передача</div>
+        <span data-i18n="enabledTitle">Плагин включён</span>
+        <div class="hint" data-i18n="enabledHint">Автоматический перехват и передача</div>
       </div>
       <label class="toggle">
         <input type="checkbox" id="enabled" checked>
@@ -287,8 +287,8 @@
     </div>
     <div class="switch-row">
       <div>
-        <span>Перехватывать файлы</span>
-        <div class="hint">Вложения и ссылки на файлы</div>
+        <span data-i18n="filesTitle">Перехватывать файлы</span>
+        <div class="hint" data-i18n="filesHint">Вложения и ссылки на файлы</div>
       </div>
       <label class="toggle">
         <input type="checkbox" id="capture-files" checked>
@@ -297,8 +297,8 @@
     </div>
     <div class="switch-row">
       <div>
-        <span>Перехватывать видео</span>
-        <div class="hint">Видео на странице и в сети</div>
+        <span data-i18n="videoTitle">Перехватывать видео</span>
+        <div class="hint" data-i18n="videoHint">Видео на странице и в сети</div>
       </div>
       <label class="toggle">
         <input type="checkbox" id="capture-video" checked>
@@ -309,8 +309,8 @@
 
   <section>
     <div class="section-head">
-      <div class="label">Видео на странице</div>
-      <button id="refresh" class="small" type="button">Обновить</button>
+      <div class="label" data-i18n="videosOnPage">Видео на странице</div>
+      <button id="refresh" class="small" type="button" data-i18n="refresh">Обновить</button>
     </div>
     <div class="preview" id="page-preview">
       <div class="preview-thumb" id="preview-thumb">
@@ -318,9 +318,9 @@
         <span class="play">▶</span>
       </div>
       <div class="preview-info">
-        <div class="preview-title" id="preview-title">Видео на странице</div>
+        <div class="preview-title" id="preview-title" data-i18n="videosOnPage">Видео на странице</div>
         <div class="preview-meta" id="preview-meta"></div>
-        <button id="preview-download" class="primary preview-btn" type="button">Скачать</button>
+        <button id="preview-download" class="primary preview-btn" type="button" data-i18n="download">Скачать</button>
       </div>
     </div>
     <div class="videos" id="videos">
@@ -329,7 +329,7 @@
   </section>
 
   <section>
-    <button id="open-app" class="primary" type="button">Открыть DwV</button>
+    <button id="open-app" class="primary" type="button" data-i18n="openApp">Открыть DwV</button>
     <div class="notice" id="notice" role="status" aria-live="polite"></div>
   </section>
 

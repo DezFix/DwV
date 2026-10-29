@@ -32,6 +32,14 @@ const DEFAULT_SETTINGS = { enabled: true, captureFiles: true, captureVideo: true
 const settings = { ...DEFAULT_SETTINGS };
 
 const api = globalThis.browser ?? globalThis.chrome;
+
+function t(key, substitution) {
+  try {
+    return api.i18n?.getMessage(key, substitution) || key;
+  } catch {
+    return key;
+  }
+}
 const IS_CHROME = Boolean(api.downloads?.onDeterminingFilename);
 
 const contexts = new Map();
@@ -288,9 +296,9 @@ function mediaKind(url, mime) {
 function mediaTitle(url) {
   const name = basename(url.split(/[?#]/)[0]);
   try {
-    return decodeURIComponent(name) || "Видео";
+    return decodeURIComponent(name) || t("video");
   } catch {
-    return name || "Видео";
+    return name || t("video");
   }
 }
 
@@ -677,7 +685,7 @@ api.runtime.onInstalled.addListener(() => {
     });
     api.contextMenus.create({
       id: "dwv-video-page",
-      title: "Скачать видео со страницы",
+      title: t("menuVideoPage"),
       contexts: ["page"],
     });
   } catch {}
@@ -725,13 +733,13 @@ api.runtime.onMessage?.addListener((message, sender, sendResponse) => {
       : { type: "ping" };
     settingsReady.then(() => {
       if (!settings.enabled && payload.type !== "ping") {
-        respond(sendResponse, { ok: false, error: "Плагин выключен" });
+        respond(sendResponse, { ok: false, error: t("pluginDisabled") });
         return;
       }
       handOff(payload)
         .then((reply) => respond(sendResponse, { ok: reply.ok, error: reply.error }))
-        .catch(() => respond(sendResponse, { ok: false, error: "DwV не ответил" }));
-    }).catch(() => respond(sendResponse, { ok: false, error: "DwV не ответил" }));
+        .catch(() => respond(sendResponse, { ok: false, error: t("appNoReply") }));
+    }).catch(() => respond(sendResponse, { ok: false, error: t("appNoReply") }));
     return true;
   }
 

@@ -7,7 +7,7 @@
  *
  *   node extension/build-xpi.mjs
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,31 +29,16 @@ const outFile = join(outDir, `dwv-${version}.xpi`)
 
 mkdirSync(outDir, { recursive: true })
 
-// Only the files the extension actually ships.
-const files = readdirSync(source).filter(name => {
-  const full = join(source, name)
-  return statSync(full).isFile() && name !== 'manifest.json'
-})
-
-const tmp = join(outDir, `.stage-${version}`)
-if (existsSync(tmp)) {
-  execFileSync('cmd', ['/c', 'rmdir', '/s', '/q', tmp])
-}
-mkdirSync(tmp, { recursive: true })
-
-execFileSync('cmd', ['/c', 'copy', '/y', manifestPath, join(tmp, 'manifest.json')])
-for (const name of files) {
-  execFileSync('cmd', ['/c', 'copy', '/y', join(source, name), join(tmp, name)])
-}
+// Everything the extension ships, including `_locales`. The archive is built
+// straight from the source folder, so manifest.json stays at the root.
+const entries = readdirSync(source).filter(name => name !== 'manifest.json')
 
 // zip it: `tar --format zip` (plain `tar -a` with an .xpi extension makes a tarball)
 execFileSync(
   'tar',
-  ['--format', 'zip', '-c', '-f', outFile, '-C', tmp, 'manifest.json', ...files],
+  ['--format', 'zip', '-c', '-f', outFile, '-C', source, 'manifest.json', ...entries],
   { stdio: 'inherit' },
 )
-
-execFileSync('cmd', ['/c', 'rmdir', '/s', '/q', tmp])
 
 console.log(`Built ${outFile}`)
 console.log('Install: about:debugging#/runtime/this-firefox -> Load Temporary Add-on -> pick the .xpi')

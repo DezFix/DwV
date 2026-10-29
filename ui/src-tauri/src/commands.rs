@@ -322,6 +322,10 @@ fn torrent_from_download(state: &AppState, app: &AppHandle, id: u64, path: &Path
     true
 }
 
+fn looks_like_torrent_bytes(bytes: &[u8]) -> bool {
+    bytes.first() == Some(&b'd') && bytes.windows(6).any(|window| window == b"4:info")
+}
+
 pub fn looks_like_torrent(path: &Path) -> bool {
     const MAX: u64 = 16 << 20;
     let Ok(meta) = std::fs::metadata(path) else {
@@ -333,7 +337,62 @@ pub fn looks_like_torrent(path: &Path) -> bool {
     let Ok(bytes) = std::fs::read(path) else {
         return false;
     };
-    bytes.first() == Some(&b'd') && bytes.windows(6).any(|window| window == b"4:info")
+    looks_like_torrent_bytes(&bytes)
+}
+
+/// Downloads a `.torrent` link with the browser's cookies, referer and user
+/// agent: the torrent session would request it anonymously and get a login
+/// page from private trackers instead.
+async fn fetch_torrent_path(
+    state: &AppState,
+    url: &str,
+    referrer: Option<&str>,
+    cookies: Option<&str>,
+    user_agent: Option<&str>,
+) -> Option<PathBuf> {
+    const MAX: usize = 16 << 20;
+    let client = reqwest::Client::builder()
+        .http1_only()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .ok()?;
+    let mut request = client.get(url);
+    if let Some(value) = referrer {
+        request = request.header(reqwest::header::REFERER, value);
+    }
+    if let Some(value) = cookies {
+        request = request.header(reqwest::header::COOKIE, value);
+    }
+    if let Some(value) = user_agent {
+        request = request.header(reqwest::header::USER_AGENT, value);
+    }
+    let response = request.send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX as u64)
+    {
+        return None;
+    }
+    let bytes = response.bytes().await.ok()?;
+    if bytes.len() > MAX || !looks_like_torrent_bytes(&bytes) {
+        return None;
+    }
+    let dir = state.data_dir.join("cache").join("torrents");
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join(format!(
+        "{}-{}.torrent",
+        now_secs(),
+        dwv_torrent::torrent_name(url)
+    ));
+    std::fs::write(&path, bytes).ok()?;
+    Some(path)
+}
+
+fn is_cached_torrent(state: &AppState, source: &str) -> bool {
+    Path::new(source).starts_with(state.data_dir.join("cache").join("torrents"))
 }
 
 pub fn torrent_target_path(path: &Path) -> PathBuf {
@@ -1711,7 +1770,15 @@ pub fn pending_downloads(state: State<'_, AppState>) -> Vec<PendingDownload> {
 
 #[command]
 pub fn cancel_pending(id: u64, state: State<'_, AppState>) {
-    state.pending.lock().unwrap().remove(&id);
+    let removed = state.pending.lock().unwrap().remove(&id);
+    if let Some(PendingAdd {
+        payload: PendingPayload::Torrent(source),
+        ..
+    }) = removed
+        && is_cached_torrent(&state, &source)
+    {
+        let _ = std::fs::remove_file(source);
+    }
 }
 
 #[command]
@@ -1730,6 +1797,12 @@ pub async fn resolve_pending(
     if dir.is_empty() {
         return Err("Выберите папку".to_string());
     }
+    let cached = match &add.payload {
+        PendingPayload::Torrent(source) if is_cached_torrent(&state, source) => {
+            Some(source.clone())
+        }
+        _ => None,
+    };
     match add.payload {
         PendingPayload::File(mut context) => {
             context.dir = Some(PathBuf::from(&dir));
@@ -1742,6 +1815,9 @@ pub async fn resolve_pending(
         PendingPayload::Video(url) => {
             add_video_inner(&state, &app, &url, Some(&dir), quality.as_deref()).await?;
         }
+    }
+    if let Some(path) = cached {
+        let _ = std::fs::remove_file(path);
     }
     Ok(())
 }
@@ -1875,10 +1951,38 @@ pub fn start_ipc_server(state: AppHandle, ipc_state: AppState) {
                         );
                     }
                 }
-                dwv_ipc::Request::Torrent { source, .. } => {
+                dwv_ipc::Request::Torrent {
+                    source,
+                    referrer,
+                    cookies,
+                    user_agent,
+                } => {
                     // The file picker is mandatory for torrents, so queue them even
                     // when the folder dialog is disabled.
-                    let name = dwv_torrent::torrent_name(&source);
+                    let source = if source.starts_with("http://") || source.starts_with("https://")
+                    {
+                        match fetch_torrent_path(
+                            &ipc_state,
+                            &source,
+                            referrer.as_deref(),
+                            cookies.as_deref(),
+                            user_agent.as_deref(),
+                        )
+                        .await
+                        {
+                            Some(path) => path.to_string_lossy().to_string(),
+                            None => source,
+                        }
+                    } else {
+                        source
+                    };
+                    let name = if Path::new(&source).is_file() {
+                        file_name_of(Path::new(&source))
+                            .trim_end_matches(".torrent")
+                            .to_string()
+                    } else {
+                        dwv_torrent::torrent_name(&source)
+                    };
                     queue_pending(
                         &ipc_state,
                         &state,

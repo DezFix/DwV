@@ -2651,109 +2651,115 @@ pub fn deep_link_type(link: &str) -> Option<String> {
     None
 }
 
-/// Registers the `dwv://` URL protocol for the current executable (Windows).
+#[cfg(target_os = "windows")]
+fn reg_add(key: &str, name: Option<&str>, value: &str) {
+    use std::os::windows::process::CommandExt;
+
+    let mut command = std::process::Command::new("reg");
+    command.args(["add", key]);
+    match name {
+        Some(name) => {
+            command.args(["/v", name]);
+        }
+        None => {
+            command.arg("/ve");
+        }
+    }
+    command
+        .args(["/d", value, "/f"])
+        .creation_flags(CREATE_NO_WINDOW);
+    let _ = command.status();
+}
+
+/// Registers `dwv://` and `magnet:` for the current executable (Windows).
+///
+/// The magnet handler needs a ProgID listed in `RegisteredApplications`:
+/// Windows' "Open with" dialog lists handlers from app capabilities, not from
+/// the merged `magnet` class alone.
 pub fn register_protocol() {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
         let exe = exe.to_string_lossy().to_string();
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\dwv",
-                "/ve",
-                "/d",
-                "URL:dwv Protocol",
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\dwv",
-                "/v",
-                "URL Protocol",
-                "/d",
-                "",
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        let icon = format!(r#""{}""#, exe);
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\dwv\DefaultIcon",
-                "/ve",
-                "/d",
-                &icon,
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        let command = format!(r#""{}" "%1""#, exe);
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\dwv\shell\open\command",
-                "/ve",
-                "/d",
-                &command,
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
+        let icon = format!("\"{exe}\"");
+        let command = format!("\"{exe}\" \"%1\"");
 
-        // Magnet links: register DwV as one of the Windows handlers.
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\magnet",
-                "/ve",
-                "/d",
-                "URL:magnet Protocol",
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\magnet",
-                "/v",
-                "URL Protocol",
-                "/d",
-                "",
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\magnet\DefaultIcon",
-                "/ve",
-                "/d",
-                &icon,
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        let _ = std::process::Command::new("reg")
-            .args([
-                "add",
-                r"HKCU\Software\Classes\magnet\shell\open\command",
-                "/ve",
-                "/d",
-                &command,
-                "/f",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
+        // dwv:// is ours alone, a direct class is enough.
+        reg_add(r"HKCU\Software\Classes\dwv", None, "URL:dwv Protocol");
+        reg_add(r"HKCU\Software\Classes\dwv", Some("URL Protocol"), "");
+        reg_add(r"HKCU\Software\Classes\dwv\DefaultIcon", None, &icon);
+        reg_add(
+            r"HKCU\Software\Classes\dwv\shell\open\command",
+            None,
+            &command,
+        );
+
+        // magnet: a proper ProgID plus an OpenWith entry.
+        reg_add(
+            r"HKCU\Software\Classes\DwV.magnet",
+            None,
+            "URL:magnet Protocol",
+        );
+        reg_add(r"HKCU\Software\Classes\DwV.magnet", Some("URL Protocol"), "");
+        reg_add(
+            r"HKCU\Software\Classes\DwV.magnet\DefaultIcon",
+            None,
+            &icon,
+        );
+        reg_add(
+            r"HKCU\Software\Classes\DwV.magnet\shell\open\command",
+            None,
+            &command,
+        );
+        reg_add(
+            r"HKCU\Software\Classes\magnet\OpenWithProgids",
+            Some("DwV.magnet"),
+            "",
+        );
+
+        // Keep the direct class so a fresh install can open magnets before the
+        // user picks a default application.
+        reg_add(r"HKCU\Software\Classes\magnet", None, "URL:magnet Protocol");
+        reg_add(r"HKCU\Software\Classes\magnet", Some("URL Protocol"), "");
+        reg_add(r"HKCU\Software\Classes\magnet\DefaultIcon", None, &icon);
+        reg_add(
+            r"HKCU\Software\Classes\magnet\shell\open\command",
+            None,
+            &command,
+        );
+
+        // Default Apps entry (Windows lists these in the "Open with" dialog).
+        reg_add(
+            r"HKCU\Software\DwV\Capabilities",
+            Some("ApplicationName"),
+            "DwV",
+        );
+        reg_add(
+            r"HKCU\Software\DwV\Capabilities",
+            Some("ApplicationDescription"),
+            "DwV Download Manager",
+        );
+        reg_add(
+            r"HKCU\Software\DwV\Capabilities",
+            Some("ApplicationIcon"),
+            &icon,
+        );
+        reg_add(
+            r"HKCU\Software\DwV\Capabilities\UrlAssociations",
+            Some("magnet"),
+            "DwV.magnet",
+        );
+        reg_add(
+            r"HKCU\Software\DwV\Capabilities\UrlAssociations",
+            Some("dwv"),
+            "dwv",
+        );
+        reg_add(
+            r"HKCU\Software\RegisteredApplications",
+            Some("DwV"),
+            r"Software\DwV\Capabilities",
+        );
     }
 }

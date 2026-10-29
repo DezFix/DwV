@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use reqwest::StatusCode;
 use reqwest::header::{
     CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, HeaderMap, HeaderName, HeaderValue,
-    LAST_MODIFIED, RANGE,
+    LAST_MODIFIED, RANGE, RETRY_AFTER,
 };
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, OpenOptions};
@@ -22,6 +22,10 @@ use crate::limiter::SpeedLimiter;
 
 const TICK: Duration = Duration::from_millis(250);
 const MAX_RETRIES: u32 = 5;
+// a 403 on a range means "too many connections", not a broken server, so it is
+// cheaper to shed a connection than to hammer the host with retries
+const LIMIT_RETRIES: u32 = 2;
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
 const WRITE_SLICE: usize = 16 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
@@ -155,6 +159,33 @@ async fn run(
     tx: mpsc::Sender<Event>,
     cancel: watch::Receiver<bool>,
 ) -> Result<Outcome, Error> {
+    // File hosts cap parallel connections per file and answer 403/429 past the
+    // cap (pixeldrain allows a few, mixdrop fewer). Shedding one connection is
+    // not enough and hammering the host makes it worse, so the first such
+    // answer switches the transfer to a plain single stream, like the browser.
+    let mut plain = false;
+    loop {
+        match run_once(&spec, &tx, cancel.clone(), spec.connections.max(1), plain).await {
+            Err(Error::Status(code @ (403 | 429))) if !plain => {
+                plain = true;
+                let _ = fs::remove_file(with_suffix(&spec.target, ".part")).await;
+                let _ = fs::remove_file(with_suffix(&spec.target, ".dwvmeta")).await;
+                eprintln!("status {code}: retrying as a single stream");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+            other => return other,
+        }
+    }
+}
+
+async fn run_once(
+    spec: &DownloadSpec,
+    tx: &mpsc::Sender<Event>,
+    cancel: watch::Receiver<bool>,
+    requested: usize,
+    force_plain: bool,
+) -> Result<Outcome, Error> {
     let client = reqwest::Client::builder()
         .user_agent(concat!("DwV/", env!("CARGO_PKG_VERSION")))
         .http1_only()
@@ -182,14 +213,11 @@ async fn run(
 
     // a server that accepts the connection and never answers must not hang the job
     let info = tokio::select! {
-        info = probe(&client, &spec, &headers) => info?,
+        info = probe(&client, spec, &headers) => info?,
         _ = wait_stopped(stop_rx.clone()) => return Ok(Outcome::Cancelled),
     };
-    let connections = if info.segmented {
-        spec.connections.max(1)
-    } else {
-        1
-    };
+    let segmented = info.segmented && !force_plain;
+    let connections = if segmented { requested.max(1) } else { 1 };
 
     if let Some(parent) = spec.target.parent()
         && !parent.as_os_str().is_empty()
@@ -202,7 +230,7 @@ async fn run(
 
     let resumed = match read_meta(&meta_path).await {
         Some(meta)
-            if info.segmented
+            if segmented
                 && meta.url == redact_url(&spec.url)
                 && meta.etag == info.etag
                 && meta.last_modified == info.last_modified
@@ -245,7 +273,7 @@ async fn run(
 
     let total = info.total;
     let mut segments: Vec<(u64, u64)> = Vec::with_capacity(connections);
-    if info.segmented {
+    if segmented {
         // segmented implies a known total
         let size = total.unwrap_or(0);
         let chunk = size.div_ceil(connections as u64);
@@ -270,13 +298,13 @@ async fn run(
         url: spec.url.clone(),
         part: part.clone(),
         headers,
-        ranged: info.segmented,
+        ranged: segmented,
         limiter: spec.limiter.clone(),
     });
     let seg_count = segments.len();
     let mut tasks = JoinSet::new();
     for (i, (start, end)) in segments.iter().enumerate() {
-        let expected = if info.segmented { None } else { total };
+        let expected = if segmented { None } else { total };
         tasks.spawn(run_segment(
             ctx.clone(),
             *start,
@@ -344,7 +372,7 @@ async fn run(
                 last_bytes = downloaded;
                 last_tick = now;
                 // single-stream downloads are not resumable, so no metadata for them
-                if info.segmented {
+                if segmented {
                     let _ = persist_meta(&meta_path, &build_meta()).await;
                 }
                 let sent = tx
@@ -373,14 +401,14 @@ async fn run(
         }
         Ok(Outcome::Cancelled) => {
             send_final_progress(&tx, &done, total).await;
-            if info.segmented {
+            if segmented {
                 let _ = persist_meta(&meta_path, &build_meta()).await;
             }
             Ok(Outcome::Cancelled)
         }
         Err(e) => {
             send_final_progress(&tx, &done, total).await;
-            if info.segmented {
+            if segmented {
                 let _ = persist_meta(&meta_path, &build_meta()).await;
             }
             Err(e)
@@ -432,16 +460,28 @@ async fn probe(
     spec: &DownloadSpec,
     headers: &HeaderMap,
 ) -> Result<Probe, Error> {
-    let resp = client
-        .get(&spec.url)
-        .headers(headers.clone())
-        .header(RANGE, "bytes=0-0")
-        .send()
-        .await?;
-    let status = resp.status();
-    if !status.is_success() {
+    let mut attempt: u32 = 0;
+    let resp = loop {
+        let resp = client
+            .get(&spec.url)
+            .headers(headers.clone())
+            .header(RANGE, "bytes=0-0")
+            .send()
+            .await?;
+        let status = resp.status();
+        if status.is_success() {
+            break resp;
+        }
+        // a rate-limited host often answers the very first request with 429
+        if retryable_status(status) && attempt < MAX_RETRIES {
+            attempt += 1;
+            let ms = 250u64.saturating_mul(1 << attempt.min(5));
+            tokio::time::sleep(Duration::from_millis(ms)).await;
+            continue;
+        }
         return Err(Error::Status(status.as_u16()));
-    }
+    };
+    let status = resp.status();
     let content_type = header_str(resp.headers(), CONTENT_TYPE)
         .unwrap_or_default()
         .to_ascii_lowercase();
@@ -531,10 +571,13 @@ async fn run_segment(
             status.is_success()
         };
         if !status_ok {
-            // rate limits and server hiccups are worth another try
-            if retryable_status(status) && attempt < MAX_RETRIES {
+            // rate limits arrive as 429; file hosts answer 403 when too many
+            // ranged connections are open at once (pixeldrain, mixdrop)
+            let limited = ctx.ranged && status == StatusCode::FORBIDDEN;
+            let budget = if limited { LIMIT_RETRIES } else { MAX_RETRIES };
+            if (retryable_status(status) || limited) && attempt < budget {
                 attempt += 1;
-                backoff(attempt, &mut stop).await?;
+                wait_for_retry(&resp, attempt, &mut stop).await?;
                 if !ctx.ranged {
                     done.store(0, Ordering::Relaxed);
                 }
@@ -637,8 +680,30 @@ async fn write_throttled(
 
 async fn backoff(attempt: u32, stop: &mut watch::Receiver<bool>) -> Result<(), Error> {
     let ms = 250u64.saturating_mul(1 << attempt.min(5));
+    sleep_or_cancel(Duration::from_millis(ms), stop).await
+}
+
+/// A server that says how long to wait knows better than our exponential ramp.
+async fn wait_for_retry(
+    resp: &reqwest::Response,
+    attempt: u32,
+    stop: &mut watch::Receiver<bool>,
+) -> Result<(), Error> {
+    let requested = header_str(resp.headers(), RETRY_AFTER)
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(Duration::from_secs);
+    match requested {
+        Some(delay) => sleep_or_cancel(delay.min(MAX_RETRY_WAIT), stop).await,
+        None => backoff(attempt, stop).await,
+    }
+}
+
+async fn sleep_or_cancel(
+    delay: Duration,
+    stop: &mut watch::Receiver<bool>,
+) -> Result<(), Error> {
     tokio::select! {
-        _ = tokio::time::sleep(Duration::from_millis(ms)) => Ok(()),
+        _ = tokio::time::sleep(delay) => Ok(()),
         _ = stop.changed() => Err(Error::Cancelled),
     }
 }

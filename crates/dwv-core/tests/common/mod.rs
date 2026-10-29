@@ -29,12 +29,32 @@ pub async fn start_server(
     advertise_ranges: bool,
     chunk_delay: Duration,
 ) -> TestServer {
-    start_server_with_failures(body, advertise_ranges, chunk_delay, 0).await
+    start_server_with_failures(body, advertise_ranges, chunk_delay, 0, "503 Service Unavailable")
+        .await
 }
 
 /// Refuses the first `failures` range requests (after the probe) with 503.
 pub async fn start_failing_server(body: Vec<u8>, failures: usize) -> TestServer {
-    start_server_with_failures(body, true, Duration::ZERO, failures).await
+    start_server_with_failures(
+        body,
+        true,
+        Duration::ZERO,
+        failures,
+        "503 Service Unavailable",
+    )
+    .await
+}
+
+/// Refuses the first `failures` range requests (after the probe) with 403, like
+/// file hosts that cap the number of parallel connections per file.
+pub async fn start_limited_server(body: Vec<u8>, failures: usize) -> TestServer {
+    start_server_with_failures(body, true, Duration::ZERO, failures, "403 Forbidden").await
+}
+
+/// Refuses every ranged request with 403 but serves a plain GET, like a host
+/// whose per-file connection cap is one.
+pub async fn start_ranged_403_server(body: Vec<u8>) -> TestServer {
+    start_server_with_failures(body, true, Duration::ZERO, usize::MAX, "403 Forbidden").await
 }
 
 async fn start_server_with_failures(
@@ -42,6 +62,7 @@ async fn start_server_with_failures(
     advertise_ranges: bool,
     chunk_delay: Duration,
     failures: usize,
+    fail_status: &'static str,
 ) -> TestServer {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -59,7 +80,7 @@ async fn start_server_with_failures(
             let failures = failures.clone();
             tokio::spawn(async move {
                 let _ =
-                    handle_conn(sock, body, advertise_ranges, chunk_delay, seen, failures).await;
+                    handle_conn(sock, body, advertise_ranges, chunk_delay, seen, failures, fail_status).await;
             });
         }
     });
@@ -94,6 +115,7 @@ async fn handle_conn(
     chunk_delay: Duration,
     seen: Arc<Mutex<Vec<Option<String>>>>,
     failures: Arc<Mutex<usize>>,
+    fail_status: &'static str,
 ) -> std::io::Result<()> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 2048];
@@ -131,10 +153,10 @@ async fn handle_conn(
         }
     };
     if fail {
-        sock.write_all(
-            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        )
-        .await?;
+        let response = format!(
+            "HTTP/1.1 {fail_status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        sock.write_all(response.as_bytes()).await?;
         return Ok(());
     }
 

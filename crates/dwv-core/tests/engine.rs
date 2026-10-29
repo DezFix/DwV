@@ -3,7 +3,8 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::{
-    spec_for, start_failing_server, start_hanging_server, start_server, test_body, with_suffix,
+    spec_for, start_failing_server, start_hanging_server, start_limited_server,
+    start_ranged_403_server, start_server, test_body, with_suffix,
 };
 use dwv_core::{Download, Event, Outcome, SpeedLimiter};
 
@@ -160,6 +161,41 @@ async fn retries_transient_server_errors() {
     let outcome = dl.join().await.unwrap();
     assert_eq!(outcome, Outcome::Completed);
     assert_eq!(std::fs::read(&target).unwrap(), body);
+}
+
+#[tokio::test]
+async fn retries_forbidden_ranges_from_connection_limits() {
+    let body = test_body(13, 512 * 1024);
+    // pixeldrain and mixdrop answer 403 when too many ranges are open at once
+    let server = start_limited_server(body.clone(), 2).await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("limited.bin");
+
+    let mut dl = Download::start(spec_for(&server, &target, 2));
+    while dl.events().recv().await.is_some() {}
+    let outcome = dl.join().await.unwrap();
+    assert_eq!(outcome, Outcome::Completed);
+    assert_eq!(std::fs::read(&target).unwrap(), body);
+}
+
+#[tokio::test]
+async fn falls_back_to_a_single_stream_when_ranges_are_forbidden() {
+    let body = test_body(14, 512 * 1024);
+    let server = start_ranged_403_server(body.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("capped.bin");
+
+    let mut dl = Download::start(spec_for(&server, &target, 8));
+    while dl.events().recv().await.is_some() {}
+    let outcome = dl.join().await.unwrap();
+    assert_eq!(outcome, Outcome::Completed);
+    assert_eq!(std::fs::read(&target).unwrap(), body);
+
+    let ranges = server.ranges();
+    assert!(
+        ranges.iter().any(Option::is_none),
+        "the transfer must end as a plain request without ranges"
+    );
 }
 
 #[tokio::test]

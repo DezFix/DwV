@@ -28,6 +28,10 @@ pub fn t(key: &str) -> &'static str {
         ("menu.settings", true) => "Settings",
         ("menu.quit", false) => "Выход",
         ("menu.quit", true) => "Quit",
+        ("notify.done", false) => "Загрузка завершена",
+        ("notify.done", true) => "Download complete",
+        ("notify.failed", false) => "Ошибка загрузки",
+        ("notify.failed", true) => "Download failed",
         _ => "DwV",
     }
 }

@@ -30,6 +30,11 @@ const CAPTURE_TYPES = new Set(["main_frame", "sub_frame"]);
 
 const DEFAULT_SETTINGS = { enabled: true, captureFiles: true, captureVideo: true };
 const settings = { ...DEFAULT_SETTINGS };
+// Non-boolean options: smallest file to intercept, sites left to the browser,
+// video quality sent with videos ("" lets the app use its own default).
+const DEFAULT_OPTIONS = { minSizeKb: 0, excludedSites: "", videoQuality: "" };
+const options = { ...DEFAULT_OPTIONS };
+const VIDEO_QUALITIES = new Set(["best", "1080p", "720p", "480p", "audio-mp3", "audio-m4a"]);
 
 const api = globalThis.browser ?? globalThis.chrome;
 
@@ -76,11 +81,25 @@ function captureOn(key) {
   return settings.enabled && settings[key] !== false;
 }
 
+function applyOption(key, value) {
+  if (key === "minSizeKb") {
+    const number = Number(value);
+    options.minSizeKb = Number.isFinite(number) && number > 0 ? number : 0;
+  } else if (key === "excludedSites") {
+    options.excludedSites = typeof value === "string" ? value : "";
+  } else if (key === "videoQuality") {
+    options.videoQuality = VIDEO_QUALITIES.has(value) ? value : "";
+  }
+}
+
 async function loadSettings() {
   try {
-    const state = await api.storage.local.get(DEFAULT_SETTINGS);
+    const state = await api.storage.local.get({ ...DEFAULT_SETTINGS, ...DEFAULT_OPTIONS });
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
       settings[key] = state[key] !== false;
+    }
+    for (const key of Object.keys(DEFAULT_OPTIONS)) {
+      applyOption(key, state[key]);
     }
   } catch {}
 }
@@ -92,7 +111,42 @@ api.storage.onChanged?.addListener((changes, area) => {
   for (const key of Object.keys(DEFAULT_SETTINGS)) {
     if (changes[key]) settings[key] = changes[key].newValue !== false;
   }
+  for (const key of Object.keys(DEFAULT_OPTIONS)) {
+    if (changes[key]) applyOption(key, changes[key].newValue);
+  }
 });
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function excludedHosts() {
+  return options.excludedSites
+    .split(/[\s,;]+/)
+    .map((entry) => hostOf(/^[a-z]+:\/\//i.test(entry) ? entry : `https://${entry}`))
+    .filter(Boolean);
+}
+
+/** False when the user left this site, or files this small, to the browser. */
+function shouldCapture(url, size, pageUrl) {
+  const hosts = excludedHosts();
+  if (hosts.length > 0) {
+    for (const host of [hostOf(url), hostOf(pageUrl)]) {
+      if (host && hosts.some((excluded) => host === excluded || host.endsWith(`.${excluded}`))) {
+        return false;
+      }
+    }
+  }
+  const bytes = Number(size);
+  if (options.minSizeKb > 0 && Number.isFinite(bytes) && bytes > 0) {
+    return bytes >= options.minSizeKb * 1024;
+  }
+  return true;
+}
 
 function isHttp(url) {
   return /^https?:\/\//i.test(url || "");
@@ -226,6 +280,9 @@ async function retrySend(message) {
 }
 
 async function handOff(message) {
+  if (message?.type === "video" && !message.quality && options.videoQuality) {
+    message = { ...message, quality: options.videoQuality };
+  }
   let reply = await send(message);
   if (!reply.ok && reply.offline && await launchApp(deepLink(message))) {
     reply = await retrySend(message);
@@ -485,7 +542,9 @@ async function handleChromeDownload(item, url, context, response, captured, sugg
   const torrent = isTorrent(url, item.filename, item.mime || response?.mime);
   try {
     await settingsReady;
-    if (captured && captureOn("captureFiles")) {
+    const wanted = captured
+      && shouldCapture(url, item.fileSize ?? response?.size, item.referrer || context?.referrer);
+    if (wanted && captureOn("captureFiles")) {
       const message = torrent
         ? await torrentMessage(url, {
           referrer: item.referrer || context?.referrer,
@@ -548,6 +607,7 @@ function onHeadersReceivedFirefox(details) {
   });
   if (!captureOn("captureFiles") || recentlyHandedOff(details.url)) return {};
   if (!isDownloadResponse(details.url, response?.filename, response?.mime, response?.attachment)) return {};
+  if (!shouldCapture(details.url, response?.size, details.originUrl || details.documentUrl)) return {};
   remember(handedOff, details.url, Date.now());
   firefoxHandOff(details, response).catch(() => {});
   return { cancel: true };
@@ -643,6 +703,8 @@ async function onCreatedFirefox(item) {
   const response = findRecord(responses, url, item.url);
   if (context && context.method !== "GET") return;
   if (!isDownloadResponse(url, item.filename, item.mime || response?.mime, response?.attachment)) return;
+  const size = item.fileSize > 0 ? item.fileSize : item.totalBytes > 0 ? item.totalBytes : response?.size;
+  if (!shouldCapture(url, size, item.referrer || context?.referrer)) return;
   remember(handedOff, url, Date.now());
   api.downloads.cancel(item.id).catch(() => {});
   api.downloads.removeFile(item.id).catch(() => {});
@@ -680,7 +742,7 @@ api.runtime.onInstalled.addListener(() => {
   try {
     api.contextMenus.create({
       id: "dwv-download",
-      title: "Download with DwV",
+      title: t("menuDownload"),
       contexts: ["link", "image"],
     });
     api.contextMenus.create({

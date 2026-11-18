@@ -7,8 +7,8 @@ use std::time::Duration;
 use librqbit::api::TorrentIdOrHash;
 use librqbit::limits::LimitsConfig;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, AddTorrentResponse, DhtSessionConfig, Session, SessionOptions,
-    TorrentStatsState,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, ConnectionOptions, DhtSessionConfig,
+    Session, SessionOptions, TorrentStatsState,
 };
 
 type ManagedTorrentHandle = Arc<librqbit::ManagedTorrent>;
@@ -104,12 +104,15 @@ pub struct TorrentDetails {
     pub peers: Vec<TorrentPeer>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Default)]
 pub struct TorrentSessionConfig {
     pub dht_enabled: bool,
     pub peer_limit: Option<usize>,
     pub download_bps: Option<NonZeroU32>,
     pub upload_bps: Option<NonZeroU32>,
+    /// `socks5://[user:pass@]host:port`; librqbit supports only SOCKS5.
+    /// Like DHT, it applies to a session that has not been created yet.
+    pub socks_proxy: Option<String>,
 }
 
 type EventSink = Arc<dyn Fn(TorrentEvent) + Send + Sync>;
@@ -145,8 +148,9 @@ impl TorrentManager {
 
     /// Peer limit and DHT only affect a session that has not been created yet.
     pub fn configure(&self, config: TorrentSessionConfig) {
+        let (download_bps, upload_bps) = (config.download_bps, config.upload_bps);
         *self.inner.config.lock().unwrap() = config;
-        self.apply_session_limits(config.download_bps, config.upload_bps);
+        self.apply_session_limits(download_bps, upload_bps);
     }
 
     pub fn set_limits(&self, download_bps: Option<NonZeroU32>, upload_bps: Option<NonZeroU32>) {
@@ -170,7 +174,7 @@ impl TorrentManager {
     }
 
     async fn session(&self) -> Result<Arc<Session>, Error> {
-        let config = *self.inner.config.lock().unwrap();
+        let config = self.inner.config.lock().unwrap().clone();
         let default_dir = self.inner.default_dir.clone();
         let session = self
             .inner
@@ -184,6 +188,13 @@ impl TorrentManager {
                         upload_bps: config.upload_bps,
                     },
                     client_name_and_version: Some(format!("DwV/{}", env!("CARGO_PKG_VERSION"))),
+                    connect: config
+                        .socks_proxy
+                        .clone()
+                        .map(|proxy_url| ConnectionOptions {
+                            proxy_url: Some(proxy_url),
+                            ..Default::default()
+                        }),
                     ..Default::default()
                 };
                 Session::new_with_opts(default_dir, options)
@@ -206,11 +217,17 @@ impl TorrentManager {
         only_files: Option<Vec<usize>>,
         on_event: EventSink,
     ) -> Result<(), Error> {
+        // With an explicit output folder librqbit writes a multi-file torrent's
+        // files straight into it, without the torrent's own folder. Add that
+        // folder ourselves, named like the app's entry, so the files stay
+        // together and the list points at a folder that exists.
+        let meta = self.inspect(source, dir).await.ok();
+        let output = output_folder(dir, meta.as_ref(), &fallback_name);
         let session = self.session().await?;
         let add = add_torrent_request(source)?;
         let options = AddTorrentOptions {
             paused,
-            output_folder: Some(dir.to_string_lossy().into_owned()),
+            output_folder: Some(output.to_string_lossy().into_owned()),
             overwrite: true,
             only_files,
             ..Default::default()
@@ -472,12 +489,13 @@ async fn poll(
             if !seed_after_complete {
                 let _ = session.pause(&handle).await;
             }
-            let name = handle.name().unwrap_or(fallback_name);
+            // single file: the file itself; several: the folder `add` created
             let path = match meta_from_handle(&handle) {
                 Some(meta) if meta.files.len() == 1 => {
                     handle.output_folder().join(&meta.files[0].path)
                 }
-                _ => handle.output_folder().join(name),
+                Some(_) => handle.output_folder().to_path_buf(),
+                None => handle.output_folder().join(&fallback_name),
             };
             on_event(TorrentEvent::Complete {
                 id,
@@ -543,6 +561,16 @@ fn classify(stats: &librqbit::TorrentStats) -> TorrentState {
     }
 }
 
+/// Where librqbit should write: the chosen folder for a single file, a
+/// subfolder named after the download for several files (and when the file
+/// list is unknown, which librqbit would treat the same way).
+pub fn output_folder(dir: &Path, meta: Option<&TorrentMeta>, name: &str) -> PathBuf {
+    match meta {
+        Some(meta) if meta.files.len() == 1 => dir.to_path_buf(),
+        _ => dir.join(sanitize_name(name)),
+    }
+}
+
 /// Magnet `dn`, else the `.torrent` file/URL stem, else `torrent`.
 /// The result is safe to use as a single path segment.
 pub fn torrent_name(source: &str) -> String {
@@ -563,11 +591,9 @@ pub fn torrent_name(source: &str) -> String {
         let name = path.rsplit('/').next().unwrap_or("").trim();
         return sanitize_name(&clean_torrent_name(&percent_decode(name)));
     }
-    let name = Path::new(source)
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    sanitize_name(&clean_torrent_name(&name))
+    // split on both separators: Windows paths can reach here from any host
+    let name = source.rsplit(['/', '\\']).next().unwrap_or_default();
+    sanitize_name(&clean_torrent_name(name))
 }
 
 fn clean_torrent_name(name: &str) -> String {
@@ -710,6 +736,32 @@ mod tests {
     fn torrent_file_and_url_names_lose_the_extension() {
         assert_eq!(torrent_name("C:\\Downloads\\ubuntu.torrent"), "ubuntu");
         assert_eq!(torrent_name("https://example.com/a%20b.torrent?x=1"), "a b");
+    }
+
+    #[test]
+    fn multi_file_torrents_get_their_own_folder() {
+        let dir = Path::new("downloads");
+        let file = |index, path: &str| TorrentFile {
+            index,
+            path: path.to_string(),
+            size: 1,
+        };
+        let single = TorrentMeta {
+            info_hash: HASH.to_string(),
+            name: "movie.mkv".to_string(),
+            total_size: 1,
+            files: vec![file(0, "movie.mkv")],
+        };
+        assert_eq!(output_folder(dir, Some(&single), "movie.mkv"), dir);
+        let multi = TorrentMeta {
+            files: vec![file(0, "a.txt"), file(1, "sub/b.txt")],
+            ..single.clone()
+        };
+        assert_eq!(output_folder(dir, Some(&multi), "Album"), dir.join("Album"));
+        assert_eq!(
+            output_folder(dir, None, "../x"),
+            dir.join(sanitize_name("../x"))
+        );
     }
 
     #[test]

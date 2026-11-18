@@ -63,6 +63,7 @@ pub enum QueueEvent {
 enum Command {
     Add {
         spec: DownloadSpec,
+        paused: bool,
         reply: oneshot::Sender<u64>,
     },
     Cancel(u64),
@@ -86,9 +87,22 @@ impl Queue {
     }
 
     pub async fn add(&self, spec: DownloadSpec) -> Result<u64, Error> {
+        self.add_with(spec, false).await
+    }
+
+    /// Adds a download that waits in `Paused` until [`Queue::resume`].
+    pub async fn add_paused(&self, spec: DownloadSpec) -> Result<u64, Error> {
+        self.add_with(spec, true).await
+    }
+
+    async fn add_with(&self, spec: DownloadSpec, paused: bool) -> Result<u64, Error> {
         let (reply, rx) = oneshot::channel();
         self.cmd_tx
-            .send(Command::Add { spec, reply })
+            .send(Command::Add {
+                spec,
+                paused,
+                reply,
+            })
             .map_err(|_| stopped())?;
         rx.await.map_err(|_| stopped())
     }
@@ -101,6 +115,7 @@ impl Queue {
         let _ = self.cmd_tx.send(Command::Pause(id));
     }
 
+    /// Continues a paused download or retries a failed one from its `.part`.
     pub fn resume(&self, id: u64) {
         let _ = self.cmd_tx.send(Command::Resume(id));
     }
@@ -138,8 +153,10 @@ async fn supervisor(
     let mut pending: VecDeque<(u64, DownloadSpec, Option<i64>)> = VecDeque::new();
     let mut running: HashMap<u64, Running> = HashMap::new();
     let mut paused: HashMap<u64, (DownloadSpec, Option<i64>)> = HashMap::new();
+    // failed downloads keep their spec so "resume" can retry them
+    let mut failed: HashMap<u64, (DownloadSpec, Option<i64>)> = HashMap::new();
     let mut next_id = 1u64;
-    let (done_tx, mut done_rx) = mpsc::unbounded_channel::<(u64, bool)>();
+    let (done_tx, mut done_rx) = mpsc::unbounded_channel::<(u64, Ending)>();
 
     loop {
         while running.len() < config.max_parallel {
@@ -176,14 +193,22 @@ async fn supervisor(
         tokio::select! {
             biased;
             cmd = cmd_rx.recv() => match cmd {
-                Some(Command::Add { spec, reply }) => {
+                Some(Command::Add { spec, paused: start_paused, reply }) => {
                     let id = next_id;
                     next_id += 1;
                     // db failures must not block downloads
                     let db_row = db.as_ref().and_then(|db| db.insert(&spec).ok());
                     let path = spec.target.clone();
                     let _ = ev_tx.send(QueueEvent::Queued { id, path }).await;
-                    pending.push_back((id, spec, db_row));
+                    if start_paused {
+                        if let (Some(db), Some(row)) = (db.as_ref(), db_row) {
+                            let _ = db.set_state(row, State::Paused);
+                        }
+                        paused.insert(id, (spec, db_row));
+                        let _ = ev_tx.send(QueueEvent::Paused { id }).await;
+                    } else {
+                        pending.push_back((id, spec, db_row));
+                    }
                     let _ = reply.send(id);
                 }
                 Some(Command::Cancel(id)) => {
@@ -209,6 +234,9 @@ async fn supervisor(
                             let _ = db.finish(row, State::Cancelled);
                         }
                         let _ = ev_tx.send(QueueEvent::Cancelled { id }).await;
+                    } else {
+                        // a failed download stays failed in history; just forget it
+                        failed.remove(&id);
                     }
                 }
                 Some(Command::Pause(id)) => {
@@ -235,7 +263,7 @@ async fn supervisor(
                     }
                 }
                 Some(Command::Resume(id)) => {
-                    if let Some((spec, row)) = paused.remove(&id) {
+                    if let Some((spec, row)) = paused.remove(&id).or_else(|| failed.remove(&id)) {
                         if let (Some(db), Some(row)) = (db.as_ref(), row) {
                             let _ = db.set_state(row, State::Queued);
                         }
@@ -252,19 +280,35 @@ async fn supervisor(
                 }
                 None => break,
             },
-            Some((id, was_paused)) = done_rx.recv() => {
-                if let Some(entry) = running.remove(&id)
-                    && was_paused
-                {
-                    if let (Some(db), Some(row)) = (db.as_ref(), entry.db_row) {
-                        let _ = db.set_state(row, State::Paused);
+            Some((id, ending)) = done_rx.recv() => {
+                let Some(entry) = running.remove(&id) else {
+                    continue;
+                };
+                match ending {
+                    Ending::Paused => {
+                        if let (Some(db), Some(row)) = (db.as_ref(), entry.db_row) {
+                            let _ = db.set_state(row, State::Paused);
+                        }
+                        paused.insert(id, (entry.spec, entry.db_row));
+                        let _ = ev_tx.send(QueueEvent::Paused { id }).await;
                     }
-                    paused.insert(id, (entry.spec, entry.db_row));
-                    let _ = ev_tx.send(QueueEvent::Paused { id }).await;
+                    Ending::Failed => {
+                        let mut spec = entry.spec;
+                        spec.limiter = None;
+                        failed.insert(id, (spec, entry.db_row));
+                    }
+                    Ending::Done => {}
                 }
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    Done,
+    Paused,
+    Failed,
 }
 
 struct Relay {
@@ -273,7 +317,7 @@ struct Relay {
     events: mpsc::Receiver<Event>,
     task: tokio::task::JoinHandle<Result<Outcome, Error>>,
     ev_tx: mpsc::Sender<QueueEvent>,
-    done_tx: mpsc::UnboundedSender<(u64, bool)>,
+    done_tx: mpsc::UnboundedSender<(u64, Ending)>,
     db: Option<(Database, i64)>,
     pause: Arc<AtomicBool>,
 }
@@ -369,9 +413,14 @@ fn spawn_relay(relay: Relay) {
                 _ => {}
             }
         }
+        let ending = match &summary {
+            _ if was_paused => Ending::Paused,
+            Some(QueueEvent::Failed { .. }) => Ending::Failed,
+            _ => Ending::Done,
+        };
         if let Some(queue_event) = summary {
             let _ = ev_tx.send(queue_event).await;
         }
-        let _ = done_tx.send((id, was_paused));
+        let _ = done_tx.send((id, ending));
     });
 }

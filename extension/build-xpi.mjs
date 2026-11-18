@@ -13,6 +13,9 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
+
+// chrome/ is generated from firefox/; build from up-to-date sources
+execFileSync(process.execPath, [join(here, 'sync.mjs')], { stdio: 'inherit' })
 const source = join(here, 'firefox')
 const outDir = join(here, 'dist')
 const manifestPath = join(source, 'manifest.json')

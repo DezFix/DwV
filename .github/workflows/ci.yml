@@ -25,3 +25,19 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+
+  extension:
+    name: extension sync / tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: chrome/ matches firefox/
+        run: node extension/sync.mjs --check
+      - name: Background script tests
+        run: deno run --allow-read extension/test/background.test.mjs

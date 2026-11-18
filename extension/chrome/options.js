@@ -10,18 +10,34 @@ function t(key, substitution) {
 
 const captureVideo = document.getElementById("capture-video");
 const captureFiles = document.getElementById("capture-files");
+const minSize = document.getElementById("min-size");
+const excludedSites = document.getElementById("excluded-sites");
+const videoQuality = document.getElementById("video-quality");
 const status = document.getElementById("status");
 
 async function load() {
-  const state = await api.storage.local.get({ captureVideo: true, captureFiles: true });
+  const state = await api.storage.local.get({
+    captureVideo: true,
+    captureFiles: true,
+    minSizeKb: 0,
+    excludedSites: "",
+    videoQuality: "",
+  });
   captureVideo.checked = state.captureVideo !== false;
   captureFiles.checked = state.captureFiles !== false;
+  minSize.value = String(Number(state.minSizeKb) > 0 ? Number(state.minSizeKb) : 0);
+  excludedSites.value = typeof state.excludedSites === "string" ? state.excludedSites : "";
+  videoQuality.value = state.videoQuality || "";
 }
 
 function save() {
+  const size = Number(minSize.value);
   api.storage.local.set({
     captureVideo: captureVideo.checked,
     captureFiles: captureFiles.checked,
+    minSizeKb: Number.isFinite(size) && size > 0 ? Math.round(size) : 0,
+    excludedSites: excludedSites.value.trim(),
+    videoQuality: videoQuality.value,
   });
 }
 
@@ -41,6 +57,9 @@ async function check() {
 
 captureVideo.addEventListener("change", save);
 captureFiles.addEventListener("change", save);
+minSize.addEventListener("change", save);
+excludedSites.addEventListener("change", save);
+videoQuality.addEventListener("change", save);
 
 load();
 check();

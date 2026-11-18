@@ -38,6 +38,7 @@ export interface Settings {
   torrent_max_peers: number;
   torrent_seed_after_complete: boolean;
   torrent_dht_enabled: boolean;
+  default_video_quality: string;
 }
 
 const defaultCategories = (): CategorySettings[] => [
@@ -80,6 +81,7 @@ class SettingsStore {
   torrent_max_peers = $state(50);
   torrent_seed_after_complete = $state(false);
   torrent_dht_enabled = $state(true);
+  default_video_quality = $state('best');
 
   get snapshot(): Settings {
     return {
@@ -112,6 +114,7 @@ class SettingsStore {
       torrent_max_peers: this.torrent_max_peers,
       torrent_seed_after_complete: this.torrent_seed_after_complete,
       torrent_dht_enabled: this.torrent_dht_enabled,
+      default_video_quality: this.default_video_quality,
     };
   }
 
@@ -181,6 +184,7 @@ class SettingsStore {
       torrent_max_peers: 50,
       torrent_seed_after_complete: false,
       torrent_dht_enabled: true,
+      default_video_quality: 'best',
     });
   }
 }

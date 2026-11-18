@@ -9,7 +9,10 @@ pub struct CategorySettings {
     pub auto_extract: bool,
 }
 
+/// Every field falls back to [`Settings::default`], so a file written by an
+/// older version (or missing a field) keeps the rest of the user's choices.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub download_dir: String,
     pub max_concurrent_downloads: u32,
@@ -43,6 +46,8 @@ pub struct Settings {
     pub torrent_seed_after_complete: bool,
     pub torrent_max_peers: u32,
     pub torrent_dht_enabled: bool,
+    /// Quality key used when a video arrives without one (extension, deep link).
+    pub default_video_quality: String,
 }
 
 fn default_autostart() -> bool {
@@ -96,6 +101,7 @@ impl Default for Settings {
             torrent_seed_after_complete: false,
             torrent_max_peers: 50,
             torrent_dht_enabled: true,
+            default_video_quality: "best".to_string(),
         }
     }
 }
@@ -112,18 +118,87 @@ fn category(name: &str, path: &str, auto_extract: bool) -> CategorySettings {
 impl Settings {
     pub fn load(file: &Path) -> Self {
         match std::fs::read_to_string(file) {
-            Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+            Ok(json) => {
+                serde_json::from_str(json.trim_start_matches('\u{feff}')).unwrap_or_else(|_| {
+                    // keep the broken file for the user instead of overwriting it silently
+                    let _ = std::fs::copy(file, file.with_extension("json.bak"));
+                    Self::default()
+                })
+            }
             Err(_) => Self::default(),
         }
     }
 
+    /// Writes through a temporary file, so a crash mid-write cannot leave
+    /// half a JSON document behind.
     pub fn save(&self, file: &Path) -> Result<(), String> {
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(file, json).map_err(|e| e.to_string())
+        let tmp = file.with_extension("json.tmp");
+        std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, file).map_err(|e| e.to_string())
     }
+
+    /// Proxy URL for HTTP clients and yt-dlp, or `None` when disabled.
+    /// The host may carry a scheme (`socks5://host`); plain hosts mean HTTP.
+    pub fn proxy_url(&self) -> Option<String> {
+        if !self.proxy_enabled {
+            return None;
+        }
+        let raw = self.proxy_host.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let (scheme, host) = match raw.split_once("://") {
+            Some((scheme, host)) => (scheme.to_ascii_lowercase(), host),
+            None => ("http".to_string(), raw),
+        };
+        let host = host.trim_end_matches('/');
+        if host.is_empty() {
+            return None;
+        }
+        let credentials = if self.proxy_username.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "{}:{}@",
+                encode_userinfo(&self.proxy_username),
+                encode_userinfo(&self.proxy_password)
+            )
+        };
+        let port = if self.proxy_port > 0 && !host.contains(']') && !host.contains(':') {
+            format!(":{}", self.proxy_port)
+        } else {
+            String::new()
+        };
+        Some(format!("{scheme}://{credentials}{host}{port}"))
+    }
+
+    /// The proxy for torrents: librqbit tunnels peers only through SOCKS5.
+    pub fn socks_proxy_url(&self) -> Option<String> {
+        self.proxy_url()
+            .filter(|url| url.starts_with("socks5://") || url.starts_with("socks5h://"))
+            .map(|url| url.replacen("socks5h://", "socks5://", 1))
+    }
+
+    /// The custom User-Agent, if the user set one.
+    pub fn user_agent(&self) -> Option<&str> {
+        Some(self.custom_user_agent.trim()).filter(|value| !value.is_empty())
+    }
+}
+
+fn encode_userinfo(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -139,5 +214,64 @@ mod tests {
         let settings: Settings = serde_json::from_value(value).unwrap();
         assert!(settings.ask_save_path);
         assert_eq!(settings.connections_per_download, 8);
+    }
+
+    #[test]
+    fn missing_fields_keep_the_rest() {
+        // 0.2.x had no default_video_quality; before #[serde(default)] the
+        // whole file was replaced with defaults.
+        let json = r#"{"download_dir":"D:\\Downloads","speed_limit_mbps":7.5,"theme":"dark"}"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.download_dir, "D:\\Downloads");
+        assert_eq!(settings.speed_limit_mbps, 7.5);
+        assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.default_video_quality, "best");
+        assert_eq!(settings.max_concurrent_downloads, 3);
+    }
+
+    #[test]
+    fn proxy_urls() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.proxy_url(), None);
+        settings.proxy_enabled = true;
+        settings.proxy_host = "proxy.local".to_string();
+        settings.proxy_port = 3128;
+        assert_eq!(
+            settings.proxy_url().as_deref(),
+            Some("http://proxy.local:3128")
+        );
+        assert_eq!(settings.socks_proxy_url(), None);
+
+        settings.proxy_host = "socks5://127.0.0.1".to_string();
+        settings.proxy_port = 9050;
+        settings.proxy_username = "me".to_string();
+        settings.proxy_password = "p@ss:w".to_string();
+        assert_eq!(
+            settings.proxy_url().as_deref(),
+            Some("socks5://me:p%40ss%3Aw@127.0.0.1:9050")
+        );
+        assert_eq!(settings.socks_proxy_url(), settings.proxy_url());
+
+        settings.proxy_enabled = false;
+        assert_eq!(settings.proxy_url(), None);
+    }
+
+    #[test]
+    fn save_and_load_round_trip() {
+        let dir = std::env::temp_dir().join(format!("dwv-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let file = dir.join("settings.json");
+        let settings = Settings {
+            default_video_quality: "720p".to_string(),
+            ..Default::default()
+        };
+        settings.save(&file).unwrap();
+        assert!(!file.with_extension("json.tmp").exists());
+        assert_eq!(Settings::load(&file).default_video_quality, "720p");
+
+        std::fs::write(&file, "{ broken").unwrap();
+        assert_eq!(Settings::load(&file).default_video_quality, "best");
+        assert!(file.with_extension("json.bak").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

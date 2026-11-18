@@ -118,12 +118,14 @@ async fn downloads_file_into_the_download_folder() {
 
     let mut finished = false;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    let mut downloads = state.downloads.lock().unwrap();
 
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_secs(5), events.recv()).await {
             Ok(Some(QueueEvent::Finished { id: done, path })) if done == id => {
-                apply_event(&mut downloads, &QueueEvent::Finished { id: done, path });
+                apply_event(
+                    &mut state.downloads.lock().unwrap(),
+                    &QueueEvent::Finished { id: done, path },
+                );
                 finished = true;
                 break;
             }
@@ -131,7 +133,7 @@ async fn downloads_file_into_the_download_folder() {
                 panic!("download failed: {error}");
             }
             Ok(Some(event)) => {
-                apply_event(&mut downloads, &event);
+                apply_event(&mut state.downloads.lock().unwrap(), &event);
             }
             Ok(None) => break,
             Err(_) => {}
@@ -145,6 +147,7 @@ async fn downloads_file_into_the_download_folder() {
         payload.len() as u64
     );
 
+    let downloads = state.downloads.lock().unwrap();
     let item = downloads.get(&id).expect("item in state");
     assert_eq!(item.status, DownloadStatus::Completed);
     assert_eq!(item.category, Category::Video);

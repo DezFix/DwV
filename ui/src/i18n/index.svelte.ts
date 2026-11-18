@@ -23,6 +23,10 @@ export const locale = {
 export function setLocale(next: LocaleSetting) {
   current = next === 'auto' ? detectLocale() : next;
   document.documentElement.lang = current;
+  // Notifications are shown by the backend; tell it the resolved language.
+  import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke('set_ui_locale', { locale: current }))
+    .catch(() => {});
 }
 
 export function detectLocale(): Locale {

@@ -77,6 +77,20 @@
     }
 
     .status { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+    .field { flex-shrink: 0; }
+    input[type="number"], select, textarea {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font: inherit;
+      font-size: 13px;
+      padding: 4px 8px;
+    }
+    input[type="number"] { width: 96px; }
+    .stack { flex-direction: column; align-items: stretch; }
+    textarea { width: 100%; min-height: 72px; resize: vertical; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -99,6 +113,39 @@
           <div class="hint" data-i18n="captureFilesHint">Файлы, которые браузер хочет сохранить сам</div>
         </div>
         <label class="toggle"><input type="checkbox" id="capture-files"><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <div>
+          <span data-i18n="minSizeTitle">Не перехватывать файлы меньше, КБ</span>
+          <div class="hint" data-i18n="minSizeHint">0 — перехватывать всё. Работает, когда сервер сообщает размер</div>
+        </div>
+        <input class="field" type="number" id="min-size" min="0" step="64" value="0">
+      </div>
+      <div class="row stack">
+        <div>
+          <span data-i18n="excludedTitle">Сайты-исключения</span>
+          <div class="hint" data-i18n="excludedHint">По одному на строку, например example.com. На этих сайтах файлы скачивает браузер</div>
+        </div>
+        <textarea id="excluded-sites" spellcheck="false" placeholder="example.com"></textarea>
+      </div>
+    </section>
+
+    <section>
+      <h2 data-i18n="videoSection">Видео</h2>
+      <div class="row">
+        <div>
+          <span data-i18n="qualityTitle">Качество</span>
+          <div class="hint" data-i18n="qualityHint">Для кнопки «Скачать» и меню страницы</div>
+        </div>
+        <select class="field" id="video-quality">
+          <option value="" data-i18n="qualityApp">Как в приложении</option>
+          <option value="best" data-i18n="qualityBest">Лучшее</option>
+          <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="480p">480p</option>
+          <option value="audio-mp3" data-i18n="qualityMp3">Только звук (MP3)</option>
+          <option value="audio-m4a" data-i18n="qualityM4a">Только звук (M4A)</option>
+        </select>
       </div>
     </section>
 

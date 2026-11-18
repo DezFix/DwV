@@ -148,5 +148,41 @@
   },
   "connectionFail": {
     "message": "Нет соединения — запустите приложение DwV."
+  },
+  "menuDownload": {
+    "message": "Скачать через DwV"
+  },
+  "minSizeTitle": {
+    "message": "Не перехватывать файлы меньше, КБ"
+  },
+  "minSizeHint": {
+    "message": "0 — перехватывать всё. Работает, когда сервер сообщает размер"
+  },
+  "excludedTitle": {
+    "message": "Сайты-исключения"
+  },
+  "excludedHint": {
+    "message": "По одному на строку, например example.com. На этих сайтах файлы скачивает браузер"
+  },
+  "videoSection": {
+    "message": "Видео"
+  },
+  "qualityTitle": {
+    "message": "Качество"
+  },
+  "qualityHint": {
+    "message": "Для кнопки «Скачать» и меню страницы"
+  },
+  "qualityApp": {
+    "message": "Как в приложении"
+  },
+  "qualityBest": {
+    "message": "Лучшее"
+  },
+  "qualityMp3": {
+    "message": "Только звук (MP3)"
+  },
+  "qualityM4a": {
+    "message": "Только звук (M4A)"
   }
 }

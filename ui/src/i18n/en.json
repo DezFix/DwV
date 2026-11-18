@@ -229,7 +229,7 @@
   "settings.language_hint": "Language the application is displayed in",
   "settings.behaviour": "Behaviour",
   "settings.auto_start": "Start downloads automatically",
-  "settings.auto_start_hint": "Begin downloading as soon as a link is added",
+  "settings.auto_start_hint": "Start files and videos right away. When off, they are added paused",
   "settings.ask_save_path": "Ask for a folder",
   "settings.ask_save_path_hint": "Show the folder window when a download is added",
   "settings.minimize_tray": "Minimize to tray",
@@ -239,7 +239,7 @@
   "settings.notifications": "Notifications",
   "settings.autostart": "Start with Windows",
   "settings.autostart_hint": "Launch DwV when you sign in to Windows",
-  "settings.notifications_hint": "Show a notification when a download finishes",
+  "settings.notifications_hint": "Notify about finished and failed downloads while the DwV window is not active",
   "settings.queue": "Download queue",
   "settings.max_concurrent": "Maximum simultaneous downloads",
   "settings.max_concurrent_hint": "How many files download at the same time",
@@ -284,5 +284,9 @@
   "settings.search_empty": "Nothing found",
   "theme.system": "System",
   "theme.light": "Light",
-  "theme.dark": "Dark"
+  "theme.dark": "Dark",
+  "actions.retry": "Retry",
+  "settings.video_quality": "Default video quality",
+  "settings.video_quality_hint": "Used for videos from the extension and dwv:// links, and preselected in the add dialog",
+  "settings.proxy_host_hint": "HTTP proxy: just the host. SOCKS5: socks5://host — then torrents use it too (after a restart)"
 }

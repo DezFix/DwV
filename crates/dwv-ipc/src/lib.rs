@@ -14,6 +14,8 @@ use tokio_tungstenite::tungstenite::{Message, protocol::WebSocketConfig};
 
 pub const DEFAULT_PORT: u16 = 41763;
 
+/// Same keys as `dwv_media::VideoQuality::from_key`.
+const VIDEO_QUALITIES: [&str; 6] = ["best", "1080p", "720p", "480p", "audio-mp3", "audio-m4a"];
 const MAX_BODY: usize = 64 * 1024;
 const MAX_HEAD: usize = 16 * 1024;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -56,6 +58,9 @@ pub enum Request {
         url: String,
         #[serde(default)]
         referrer: Option<String>,
+        /// Quality key (`best`, `1080p`, `720p`, `480p`, `audio-mp3`, `audio-m4a`).
+        #[serde(default)]
+        quality: Option<String>,
     },
     Ping,
 }
@@ -538,10 +543,20 @@ fn validate(request: &Request) -> Result<(), String> {
             }
             Ok(())
         }
-        Request::Video { url, referrer } => {
+        Request::Video {
+            url,
+            referrer,
+            quality,
+        } => {
             validate_add(url)?;
             if referrer.as_deref().is_some_and(has_crlf) {
                 return Err("line breaks are not allowed".to_string());
+            }
+            if quality
+                .as_deref()
+                .is_some_and(|key| !VIDEO_QUALITIES.contains(&key))
+            {
+                return Err("unknown video quality".to_string());
             }
             Ok(())
         }

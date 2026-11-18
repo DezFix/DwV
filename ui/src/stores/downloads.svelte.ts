@@ -311,11 +311,14 @@ class DownloadsStore {
     }
   }
 
-  async resume(id: number) {
+  /** Resumes, retries or restores; returns the error text on failure. */
+  async resume(id: number): Promise<string | null> {
     try {
       await invoke('resume_download', { id });
+      return null;
     } catch (error) {
       console.error('Failed to resume download:', error);
+      return String(error);
     }
   }
 

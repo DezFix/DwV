@@ -3,8 +3,16 @@ use tauri::Manager;
 
 pub mod commands;
 mod i18n;
-mod settings;
+pub mod ipc;
+pub mod media;
+pub mod model;
+pub mod names;
+mod notify;
+pub mod platform;
+pub mod settings;
+pub mod torrent;
 mod tray;
+pub mod video;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,8 +23,7 @@ pub fn run() {
         .find(|a| a.starts_with("dwv://") || a.starts_with("magnet:"))
         .cloned();
 
-    crate::commands::register_protocol();
-
+    // A second instance only forwards its link; it must not touch the registry.
     if try_forward(initial_link.as_deref()) {
         std::process::exit(0);
     }
@@ -27,6 +34,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(move |app| {
             let data_dir = app_data_dir(app.handle());
@@ -47,45 +55,33 @@ pub fn run() {
             spawn_event_bridge(app.handle().clone(), bridge_state, events, handle);
 
             let ipc_state = app.state::<AppState>().inner().clone();
-            crate::commands::start_ipc_server(app.handle().clone(), ipc_state);
+            crate::ipc::start_ipc_server(app.handle().clone(), ipc_state);
 
-            resume_pending(&app.state::<AppState>());
+            resume_pending(&app.state::<AppState>(), app.handle());
 
-            if is_autostart {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();
-                }
+            if is_autostart && let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
             }
 
-            if let Some(link) = initial_url {
-                if let Some((target, kind)) = launch_target(&link) {
-                    if !target.is_empty() {
-                        let state = link_state.clone();
-                        let handle = app_handle.clone();
-                        let rt = state.handle.clone();
-                        rt.spawn(async move {
-                            let ask = state.settings.lock().unwrap().ask_save_path;
-                            let torrent =
-                                kind.as_deref() == Some("torrent") || target.starts_with("magnet:");
-                            if ask || torrent {
-                                crate::commands::queue_deep_link(
-                                    &state,
-                                    &handle,
-                                    &target,
-                                    kind.as_deref(),
-                                );
-                            } else {
-                                let _ = crate::commands::add_link(
-                                    &state,
-                                    &handle,
-                                    &target,
-                                    kind.as_deref(),
-                                )
+            if let Some(link) = initial_url
+                && let Some((target, kind)) = launch_target(&link)
+                && !target.is_empty()
+            {
+                let state = link_state.clone();
+                let handle = app_handle.clone();
+                let rt = state.handle.clone();
+                rt.spawn(async move {
+                    let ask = state.settings.lock().unwrap().ask_save_path;
+                    let torrent =
+                        kind.as_deref() == Some("torrent") || target.starts_with("magnet:");
+                    if ask || torrent {
+                        crate::commands::queue_deep_link(&state, &handle, &target, kind.as_deref());
+                    } else {
+                        let _ =
+                            crate::commands::add_link(&state, &handle, &target, kind.as_deref())
                                 .await;
-                            }
-                        });
                     }
-                }
+                });
             }
 
             if cfg!(debug_assertions) {
@@ -130,9 +126,9 @@ pub fn run() {
             commands::add_download,
             commands::preview_download,
             commands::add_download_as,
-            commands::add_video,
-            commands::add_torrent,
-            commands::inspect_torrent,
+            video::add_video,
+            torrent::add_torrent,
+            torrent::inspect_torrent,
             commands::pending_downloads,
             commands::resolve_pending,
             commands::cancel_pending,
@@ -154,6 +150,7 @@ pub fn run() {
             commands::open_file,
             commands::open_url,
             commands::show_in_folder,
+            commands::set_ui_locale,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -164,7 +161,8 @@ pub fn run() {
                 let settings = state.settings.lock().unwrap().clone();
                 i18n::set_locale(&settings.language);
                 commands::apply_limits(&state, &settings);
-                commands::apply_autostart(settings.autostart);
+                // reg.exe calls run off the main thread: the window shows at once
+                crate::platform::spawn_registry_setup(Some(settings.autostart), true);
             }
         });
 }

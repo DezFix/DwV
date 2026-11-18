@@ -29,8 +29,14 @@ pub async fn start_server(
     advertise_ranges: bool,
     chunk_delay: Duration,
 ) -> TestServer {
-    start_server_with_failures(body, advertise_ranges, chunk_delay, 0, "503 Service Unavailable")
-        .await
+    start_server_with_failures(
+        body,
+        advertise_ranges,
+        chunk_delay,
+        0,
+        "503 Service Unavailable",
+    )
+    .await
 }
 
 /// Refuses the first `failures` range requests (after the probe) with 503.
@@ -79,8 +85,16 @@ async fn start_server_with_failures(
             let seen = seen.clone();
             let failures = failures.clone();
             tokio::spawn(async move {
-                let _ =
-                    handle_conn(sock, body, advertise_ranges, chunk_delay, seen, failures, fail_status).await;
+                let _ = handle_conn(
+                    sock,
+                    body,
+                    advertise_ranges,
+                    chunk_delay,
+                    seen,
+                    failures,
+                    fail_status,
+                )
+                .await;
             });
         }
     });
@@ -153,9 +167,8 @@ async fn handle_conn(
         }
     };
     if fail {
-        let response = format!(
-            "HTTP/1.1 {fail_status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-        );
+        let response =
+            format!("HTTP/1.1 {fail_status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         sock.write_all(response.as_bytes()).await?;
         return Ok(());
     }

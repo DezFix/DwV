@@ -294,6 +294,23 @@
         </div>
 
         <div class="row">
+          <span class="label">{t('settings.video_quality')}</span>
+          <select
+            class="input select"
+            value={settingsStore.default_video_quality}
+            onchange={(e) => settingsStore.save({ default_video_quality: e.currentTarget.value })}
+          >
+            <option value="best">{t('quality.best')}</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+            <option value="480p">480p</option>
+            <option value="audio-mp3">{t('quality.audio_mp3')}</option>
+            <option value="audio-m4a">{t('quality.audio_m4a')}</option>
+          </select>
+          <p class="hint">{t('settings.video_quality_hint')}</p>
+        </div>
+
+        <div class="row">
           <span class="label">{t('settings.ask_save_path')}</span>
           <input
             type="checkbox"
@@ -400,6 +417,7 @@
               onchange={(e) => settingsStore.save({ proxy_host: e.currentTarget.value })}
               placeholder="proxy.example.com"
             />
+            <p class="hint">{t('settings.proxy_host_hint')}</p>
           </div>
           <div class="row">
             <span class="label">{t('settings.proxy_port')}</span>

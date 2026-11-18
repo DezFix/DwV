@@ -2,11 +2,11 @@
 name = "dwv"
 version = "0.2.2"
 description = "DwV Download Manager"
-authors = ["DwV Team"]
-license = "MIT"
-repository = "https://github.com/DwV/DwV"
+authors = ["DezFix"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/DezFix/DwV"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.92"
 
 [lib]
 name = "dwv_app"

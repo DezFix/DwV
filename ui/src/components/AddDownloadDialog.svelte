@@ -1,6 +1,7 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
   import { t } from '../i18n/index.svelte.ts';
+  import { settingsStore } from '../stores/settings.svelte.ts';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -17,13 +18,13 @@
 
   let folder = $state('');
   let hide = $state(false);
-  let quality = $state('best');
+  let quality = $state(settingsStore.default_video_quality || 'best');
 
   $effect(() => {
     if (isOpen) {
       folder = dir;
       hide = false;
-      quality = 'best';
+      quality = settingsStore.default_video_quality || 'best';
     }
   });
 

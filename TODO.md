@@ -1,8 +1,50 @@
-# DwV — TODO 0.1.6
+# DwV — TODO
 
-Сборка: `release/`. Проверки: `cargo test --workspace`, `cargo test --manifest-path ui/src-tauri/Cargo.toml`, `npm run check`, `npm run build`, `npm run tauri build`, тесты расширения, XPI в LibreWolf.
+Сборка: `release/`. Проверки: `cargo test --workspace`, `cargo test --manifest-path ui/src-tauri/Cargo.toml`, `npm run check`, `npm run build`, `npm run tauri build`, `node extension/sync.mjs --check`, `deno run --allow-read extension/test/background.test.mjs`, XPI в LibreWolf.
 
-## В работе: 0.2.1
+## Следующий релиз (0.3.0) — сделано, не выпущено
+
+Заметки: `docs/release-0.3.0.md`.
+
+### Исправления
+- [x] История хранит ссылку целиком (без `#` и логина): magnet больше не превращается в `magnet:`, `download.php?id=…` докачивается
+- [x] «Продолжить» для строк истории восстанавливает загрузку, а не молча ничего не делает
+- [x] Упавшую HTTP-загрузку можно повторить с места `.part`
+- [x] «Очистить завершённые» больше не удаляет чужие строки истории (id очереди ≠ id БД)
+- [x] `Content-Disposition: filename="…"` без `*`; GET-запрос, если сервер не отвечает на HEAD; имя из адреса после редиректа
+- [x] Запросы от расширения обрабатываются параллельно
+- [x] Обработчик magnet не отбирается у другого клиента; реестр пишется в фоне и только при смене пути exe
+- [x] Настройки не сбрасываются целиком, если в файле нет поля; запись атомарная, битый файл → `.bak`
+- [x] «Сбросить базу» останавливает загрузки, чистит всю историю и обновляет список
+- [x] Многофайловый торрент пишется в свою папку (librqbit с явным `output_folder` её не создаёт)
+- [x] Тест имени торрента падал вне Windows
+
+### Доработки
+- [x] Пауза/продолжение видео (yt-dlp докачивает свой `.part`)
+- [x] Автовосстановление незавершённых файлов, торрентов и видео при запуске
+- [x] Прокси (HTTP/SOCKS5), свой User-Agent, уведомления, «Автозапуск загрузок» — теперь работают
+- [x] Качество видео по умолчанию
+- [x] `commands.rs` разнесён на модули: `video`, `torrent`, `ipc`, `names`, `platform`, `media`, `model`, `notify`
+- [x] Расширение: минимальный размер файла, сайты-исключения, качество видео, локализованное меню
+- [x] Расширение: один исходник (`firefox/`), `chrome/` собирается `sync.mjs`, проверка в CI
+
+### Перед релизом
+- [ ] Поднять версии: приложение 0.3.0 (`ui/package.json`, `tauri.conf.json`, `Cargo.toml`), расширение 1.3.0 (`extension/firefox/manifest.json`, затем `node extension/sync.mjs`)
+- [ ] Проверить на Windows: регистрация magnet при установленном qBittorrent, автозапуск, уведомления
+- [ ] Подписать расширение в AMO
+
+## Осталось / ограничения
+
+- [ ] Прокси для торрентов: только SOCKS5 и после перезапуска (так устроен librqbit)
+- [ ] DHT и max peers применяются к новой торрент-сессии
+- [ ] Быстрое возобновление торрентов без перепроверки кусков (librqbit `fastresume` + persistence)
+- [ ] Аутентификация IPC (токен или native messaging): сейчас любой локальный процесс может подделать Origin
+- [ ] truncate_filenames, auto_extract, categories — не реализованы и скрыты в интерфейсе
+- [ ] apply_update не реализован (проверка обновлений есть)
+- [ ] Первый запуск dwv:// из браузера может требовать подтверждения Windows
+- [ ] Плейлисты yt-dlp (сейчас `--no-playlist`)
+
+## 0.2.1 (выпущено)
 
 ### Исправления
 - [x] Windows «Открыть с помощью»: ProgID + RegisteredApplications для magnet
@@ -79,21 +121,3 @@
 - [x] Deep link `dwv://`, IPC для расширения, автозапуск
 - [x] Расширение Firefox/LibreWolf: перехват файлов/видео, popup, XPI
 
-## Осталось / ограничения
-
-- [ ] Незавершённые торренты и видео не возобновляются после перезапуска
-- [ ] DHT и max peers применяются к новой торрент-сессии; лимиты скорости — сразу
-- [ ] XPI не подписан: постоянная установка в LibreWolf/Developer/ESR или временная через about:debugging
-- [ ] Настройки auto_start_downloads, show_notifications, proxy_*, truncate_filenames, auto_extract пока не влияют на загрузки
-- [ ] apply_update не реализован (проверка обновлений есть)
-- [ ] Первый запуск dwv:// из браузера может требовать подтверждения Windows
-
-
-## Артефакты
-
-- `release/DwV-0.1.3-portable.exe`
-- `release/DwV-0.1.3-setup.exe`
-- `release/DwV-0.1.3-x64.msi`
-- `release/dwv-firefox-1.2.5.xpi`
-- `release/INSTALL-EXTENSION.md`
-- `release/README.txt`

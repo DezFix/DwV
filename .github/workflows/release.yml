@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v0.3.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: build / publish
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ui/src-tauri
+
+      - name: Tag matches tauri.conf.json
+        shell: pwsh
+        run: |
+          $version = (Get-Content ui/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($env:TAG -ne "v$version") { throw "Tag $env:TAG does not match version $version in tauri.conf.json" }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Build frontend + installers
+        working-directory: ui
+        run: npm run tauri build
+
+      - name: Build extension packages
+        run: node extension/build-xpi.mjs
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "ui/src-tauri/target/release/dwv.exe" "dist/DwV-$env:VERSION-portable.exe"
+          Copy-Item "ui/src-tauri/target/release/bundle/nsis/*-setup.exe" dist/
+          Copy-Item "ui/src-tauri/target/release/bundle/msi/*.msi" dist/
+          $extVersion = (Get-Content extension/firefox/manifest.json -Raw | ConvertFrom-Json).version
+          Copy-Item "extension/dist/dwv-$extVersion.xpi" "dist/dwv-firefox-$extVersion.xpi"
+          Copy-Item "extension/dist/dwv-chrome-$extVersion.zip" dist/
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "docs/release-$env:VERSION.md"
+          if (-not (Test-Path $notes)) { throw "Missing release notes: $notes" }
+          gh release create $env:TAG --title "DwV $env:VERSION" --notes-file $notes dist/*

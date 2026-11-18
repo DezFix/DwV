@@ -78,6 +78,18 @@ impl VideoQuality {
         })
     }
 
+    /// The key [`VideoQuality::from_key`] accepts.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Best => "best",
+            Self::P1080 => "1080p",
+            Self::P720 => "720p",
+            Self::P480 => "480p",
+            Self::AudioMp3 => "audio-mp3",
+            Self::AudioM4a => "audio-m4a",
+        }
+    }
+
     pub fn is_audio(self) -> bool {
         matches!(self, Self::AudioMp3 | Self::AudioM4a)
     }
@@ -295,14 +307,40 @@ pub async fn download_video(
     download_video_with_limit(url, dir, quality, None, on_progress).await
 }
 
+/// Extra knobs for a video download.
+#[derive(Debug, Clone, Default)]
+pub struct VideoOptions {
+    /// Transfer cap in bytes per second.
+    pub limit_bps: Option<u64>,
+    /// `http://`, `https://` or `socks5://` proxy.
+    pub proxy: Option<String>,
+}
+
 /// Same as [`download_video`], but caps the transfer rate in bytes per second.
 pub async fn download_video_with_limit(
     url: &str,
     dir: &Path,
     quality: VideoQuality,
     limit_bps: Option<u64>,
+    on_progress: impl FnMut(VideoProgress),
+) -> Result<Option<PathBuf>, Error> {
+    let options = VideoOptions {
+        limit_bps,
+        ..Default::default()
+    };
+    download_video_with_options(url, dir, quality, &options, on_progress).await
+}
+
+/// Downloads a single video with [`VideoOptions`]. Re-running it for the same
+/// URL and folder continues yt-dlp's `.part` files.
+pub async fn download_video_with_options(
+    url: &str,
+    dir: &Path,
+    quality: VideoQuality,
+    options: &VideoOptions,
     mut on_progress: impl FnMut(VideoProgress),
 ) -> Result<Option<PathBuf>, Error> {
+    let limit_bps = options.limit_bps;
     let ytdlp = ensure_ytdlp().await?;
     let ffmpeg_dir = ensure_ffmpeg().await?;
     let _ = ensure_deno().await;
@@ -350,6 +388,9 @@ pub async fn download_video_with_limit(
     }
     if let Some(limit) = limit_bps.filter(|value| *value > 0) {
         command.arg("--limit-rate").arg(limit.to_string());
+    }
+    if let Some(proxy) = options.proxy.as_deref().filter(|value| !value.is_empty()) {
+        command.arg("--proxy").arg(proxy);
     }
     let started = SystemTime::now();
     let before = snapshot_files(dir);

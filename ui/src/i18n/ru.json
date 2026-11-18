@@ -229,7 +229,7 @@
   "settings.language_hint": "Язык, на котором отображается приложение",
   "settings.behaviour": "Поведение",
   "settings.auto_start": "Автозапуск загрузок",
-  "settings.auto_start_hint": "Автоматически начинать загрузку после добавления ссылки",
+  "settings.auto_start_hint": "Сразу начинать загрузку файлов и видео. Если выключено, они добавляются на паузе",
   "settings.ask_save_path": "Спрашивать папку",
   "settings.ask_save_path_hint": "Показывать окно выбора папки при добавлении загрузки",
   "settings.minimize_tray": "Сворачивать в трей",
@@ -239,7 +239,7 @@
   "settings.notifications": "Уведомления",
   "settings.autostart": "Запускать вместе с Windows",
   "settings.autostart_hint": "Запускать DwV при входе в Windows",
-  "settings.notifications_hint": "Показывать уведомления о завершении загрузок",
+  "settings.notifications_hint": "Уведомлять о завершении и ошибках, когда окно DwV не активно",
   "settings.queue": "Очередь загрузок",
   "settings.max_concurrent": "Максимум одновременных загрузок",
   "settings.max_concurrent_hint": "Количество файлов, скачивающихся одновременно",
@@ -284,5 +284,9 @@
   "settings.search_empty": "Ничего не найдено",
   "theme.system": "Системная",
   "theme.light": "Светлая",
-  "theme.dark": "Тёмная"
+  "theme.dark": "Тёмная",
+  "actions.retry": "Повторить",
+  "settings.video_quality": "Качество видео по умолчанию",
+  "settings.video_quality_hint": "Используется для видео из расширения и ссылок dwv://, а также предлагается в окне добавления",
+  "settings.proxy_host_hint": "HTTP-прокси: просто адрес. SOCKS5: socks5://адрес — тогда через прокси пойдут и торренты (после перезапуска)"
 }

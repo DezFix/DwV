@@ -117,14 +117,36 @@
       : (item.filename.split('.').pop()?.toUpperCase() ?? ''),
   );
 
+  // Live downloads of every kind pause; history rows only resume.
+  const canPause = $derived(
+    item.id > 0 && (item.status === 'downloading' || item.status === 'pending'),
+  );
+  // Paused continues; failed/cancelled retries (history rows are restored).
+  const canResume = $derived(
+    item.status === 'paused' ||
+      item.status === 'error' ||
+      (item.status === 'cancelled' && item.id < 0),
+  );
+  const resumeLabel = $derived(
+    item.status === 'paused' ? t('actions.resume') : t('actions.retry'),
+  );
+
   async function handlePause() {
     closeContextMenu();
-    await invoke('pause_download', { id: item.id });
+    try {
+      await invoke('pause_download', { id: item.id });
+    } catch (error) {
+      onError(String(error));
+    }
   }
 
   async function handleResume() {
     closeContextMenu();
-    await invoke('resume_download', { id: item.id });
+    try {
+      await invoke('resume_download', { id: item.id });
+    } catch (error) {
+      onError(String(error));
+    }
   }
 
   function handleRemove() {
@@ -233,12 +255,12 @@
   <span class="cell added cell-added">{formatAdded(item.added_at)}</span>
 
   <div class="row-actions" onclick={stop} role="presentation">
-    {#if item.id > 0 && item.kind !== 'video' && item.status === 'downloading'}
+    {#if canPause}
       <button class="act" onclick={handlePause} title={t('actions.pause')} aria-label={t('actions.pause')}>
         <Icon name="pause" size={14} />
       </button>
-    {:else if item.id > 0 && item.kind !== 'video' && item.status === 'paused'}
-      <button class="act" onclick={handleResume} title={t('actions.resume')} aria-label={t('actions.resume')}>
+    {:else if canResume}
+      <button class="act" onclick={handleResume} title={resumeLabel} aria-label={resumeLabel}>
         <Icon name="play" size={14} />
       </button>
     {/if}
@@ -278,15 +300,15 @@
         </button>
         <hr />
       {/if}
-      {#if item.id > 0 && item.kind !== 'video' && item.status === 'downloading'}
+      {#if canPause}
         <button class="ctx" onclick={handlePause}>
           <Icon name="pause" size={14} />
           {t('actions.pause')}
         </button>
-      {:else if item.id > 0 && item.kind !== 'video' && item.status === 'paused'}
+      {:else if canResume}
         <button class="ctx" onclick={handleResume}>
           <Icon name="play" size={14} />
-          {t('actions.resume')}
+          {resumeLabel}
         </button>
       {/if}
       <button class="ctx danger" onclick={handleRemove}>

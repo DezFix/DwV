@@ -160,16 +160,30 @@
     sortDir = next === 'name' ? 'asc' : 'desc';
   }
 
+  function statusOf(id: number) {
+    return downloadsStore.items.find(item => item.id === id)?.status;
+  }
+
   async function pauseSelected() {
     for (const id of [...checkedIds]) {
-      await downloadsStore.pause(id);
+      const status = statusOf(id);
+      if (id > 0 && (status === 'downloading' || status === 'pending')) {
+        await downloadsStore.pause(id);
+      }
     }
   }
 
   async function resumeSelected() {
+    const failures: string[] = [];
     for (const id of [...checkedIds]) {
-      await downloadsStore.resume(id);
+      const status = statusOf(id);
+      const resumable =
+        status === 'paused' || status === 'error' || (status === 'cancelled' && id < 0);
+      if (!resumable) continue;
+      const error = await downloadsStore.resume(id);
+      if (error) failures.push(error);
     }
+    if (failures.length > 0) showToast(failures[0]);
   }
 
   function handleGlobalKeydown(event: KeyboardEvent) {
@@ -598,13 +612,7 @@
     const appWindow = getCurrentWindow();
 
     (async () => {
-      await Promise.all([downloadsStore.load(), settingsStore.load()]);
-      try {
-        defaultDir = await invoke<string>('default_download_dir');
-      } catch {
-        defaultDir = '';
-      }
-
+      // Listen first: events sent while the list loads must not be lost.
       unlisteners.push(
         await listen<ProgressPayload>('download-progress', e => downloadsStore.updateProgress(e.payload)),
         await listen<StatusPayload>('download-status', e => downloadsStore.updateStatus(e.payload)),
@@ -617,6 +625,10 @@
         ),
         await listen<{ id: number }>('download-removed', e => downloadsStore.removeItem(e.payload.id)),
         await listen('open-settings', () => setMode('settings')),
+        await listen('database-reset', () => void downloadsStore.load()),
+        await listen<{ url: string; error: string }>('add-failed', e =>
+          showToast(`${t('add.failed')}: ${e.payload.error}`),
+        ),
         await appWindow.onDragDropEvent(event => {
           if (event.payload.type !== 'drop') return;
 
@@ -636,6 +648,13 @@
           }
         }),
       );
+
+      await Promise.all([downloadsStore.load(), settingsStore.load()]);
+      try {
+        defaultDir = await invoke<string>('default_download_dir');
+      } catch {
+        defaultDir = '';
+      }
 
       try {
         const waiting = await invoke<PendingDownload[]>('pending_downloads');

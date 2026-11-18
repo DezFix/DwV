@@ -148,5 +148,41 @@
   },
   "connectionFail": {
     "message": "No connection — start the DwV app."
+  },
+  "menuDownload": {
+    "message": "Download with DwV"
+  },
+  "minSizeTitle": {
+    "message": "Skip files smaller than, KB"
+  },
+  "minSizeHint": {
+    "message": "0 captures everything. Works when the server reports the size"
+  },
+  "excludedTitle": {
+    "message": "Excluded sites"
+  },
+  "excludedHint": {
+    "message": "One per line, e.g. example.com. The browser downloads files on these sites"
+  },
+  "videoSection": {
+    "message": "Video"
+  },
+  "qualityTitle": {
+    "message": "Quality"
+  },
+  "qualityHint": {
+    "message": "For the Download button and the page menu"
+  },
+  "qualityApp": {
+    "message": "Same as the app"
+  },
+  "qualityBest": {
+    "message": "Best"
+  },
+  "qualityMp3": {
+    "message": "Audio only (MP3)"
+  },
+  "qualityM4a": {
+    "message": "Audio only (M4A)"
   }
 }

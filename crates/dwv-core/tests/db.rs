@@ -70,15 +70,56 @@ async fn load_pending_returns_unfinished_jobs() {
 }
 
 #[test]
-fn redact_url_strips_query_fragment_and_userinfo() {
+fn redact_url_strips_fragment_and_userinfo_but_keeps_query() {
     assert_eq!(
         dwv_core::db::redact_url("https://user:pass@example.com/dir/file.zip?token=secret#frag"),
-        "https://example.com/dir/file.zip"
+        "https://example.com/dir/file.zip?token=secret"
     );
     assert_eq!(
         dwv_core::db::redact_url("http://example.com/a.bin?x=1"),
-        "http://example.com/a.bin"
+        "http://example.com/a.bin?x=1"
     );
+    assert_eq!(
+        dwv_core::db::redact_url("https://u:p@example.com?id=1"),
+        "https://example.com?id=1"
+    );
+    // magnets have no authority: the whole link must survive
+    let magnet = "magnet:?xt=urn:btih:a621779b5e3d486e127c3efbca9b6f8d135f52e5&dn=Name";
+    assert_eq!(dwv_core::db::redact_url(magnet), magnet);
+}
+
+#[test]
+fn kind_and_extra_round_trip_and_old_rows_migrate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dwv.db");
+    {
+        // a database created by 0.2.x: no kind/extra columns
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE downloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, target TEXT NOT NULL,
+                state TEXT NOT NULL, total_bytes INTEGER, downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+                connections INTEGER NOT NULL, headers_json TEXT NOT NULL DEFAULT '[]', error TEXT,
+                created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, finished_at INTEGER);
+             INSERT INTO downloads (url, target, state, connections, created_at, updated_at)
+             VALUES ('https://example.com/a', '/tmp/a', 'completed', 1, 1, 1);",
+        )
+        .unwrap();
+    }
+    let db = Database::open(&path).unwrap();
+    let old = db.recent(10).unwrap();
+    assert_eq!(old.len(), 1);
+    assert_eq!(old[0].kind, None);
+
+    let spec = DownloadSpec::new("https://youtu.be/x?t=1", dir.path().join("v.mp4"));
+    let id = db.insert_kind(&spec, "video", Some("720p")).unwrap();
+    let stored = db.get(id).unwrap().unwrap();
+    assert_eq!(stored.kind.as_deref(), Some("video"));
+    assert_eq!(stored.extra.as_deref(), Some("720p"));
+    assert_eq!(stored.url, "https://youtu.be/x?t=1");
+
+    assert_eq!(db.delete_all().unwrap(), 2);
+    assert!(db.recent(10).unwrap().is_empty());
 }
 
 #[test]
@@ -98,7 +139,7 @@ fn insert_stores_no_headers() {
     db.insert(&spec).unwrap();
 
     let stored = &db.recent(1).unwrap()[0];
-    assert_eq!(stored.url, "https://example.com/file.bin");
+    assert_eq!(stored.url, "https://example.com/file.bin?token=secret");
     assert!(stored.headers.is_empty());
 }
 

@@ -84,6 +84,10 @@ pub struct StoredDownload {
     pub headers: Vec<(String, String)>,
     pub error: Option<String>,
     pub created_at: i64,
+    /// `file`, `video` or `torrent`; `None` for rows written before 0.3.
+    pub kind: Option<String>,
+    /// Kind-specific data, e.g. the video quality key.
+    pub extra: Option<String>,
 }
 
 impl StoredDownload {
@@ -94,6 +98,7 @@ impl StoredDownload {
             connections: self.connections,
             headers: self.headers.clone(),
             limiter: None,
+            proxy: None,
         }
     }
 }
@@ -108,17 +113,29 @@ impl Database {
         let conn = Connection::open(path)?;
         let _: String = conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
 
     pub fn insert(&self, spec: &DownloadSpec) -> Result<i64, Error> {
+        self.insert_kind(spec, "file", None)
+    }
+
+    /// Inserts a row for a download owned by another manager (video, torrent),
+    /// so it can be restored after a restart.
+    pub fn insert_kind(
+        &self,
+        spec: &DownloadSpec,
+        kind: &str,
+        extra: Option<&str>,
+    ) -> Result<i64, Error> {
         let now = now_secs();
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (url, target, state, connections, headers_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, '[]', ?5, ?5)",
+            "INSERT INTO downloads (url, target, state, connections, headers_json, created_at, updated_at, kind, extra)
+             VALUES (?1, ?2, ?3, ?4, '[]', ?5, ?5, ?6, ?7)",
             params![
                 redact_url(&spec.url),
                 // shortcut: non-UTF-8 path bytes are lost in history
@@ -126,6 +143,8 @@ impl Database {
                 State::Queued.as_str(),
                 spec.connections as i64,
                 now,
+                kind,
+                extra,
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -183,6 +202,43 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM downloads WHERE id = ?1", params![id])?;
         Ok(())
+    }
+
+    /// Puts a finished/failed/paused row back in the queue state, clearing the
+    /// old error, so a restored download keeps its place in history.
+    pub fn requeue(&self, id: i64) -> Result<(), Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET state = ?2, error = NULL, finished_at = NULL, updated_at = ?3 WHERE id = ?1",
+            params![id, State::Queued.as_str(), now_secs()],
+        )?;
+        Ok(())
+    }
+
+    /// Stores kind-specific data (video quality, selected torrent files).
+    pub fn set_extra(&self, id: i64, extra: Option<&str>) -> Result<(), Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET extra = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, extra, now_secs()],
+        )?;
+        Ok(())
+    }
+
+    /// Updates the source URL (a torrent file copied into app data).
+    pub fn set_url(&self, id: i64, url: &str) -> Result<(), Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET url = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, redact_url(url), now_secs()],
+        )?;
+        Ok(())
+    }
+
+    /// Removes every history row; returns how many were deleted.
+    pub fn delete_all(&self) -> Result<usize, Error> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.execute("DELETE FROM downloads", [])?)
     }
 
     /// Newest row for a target path; used to bind live queue entries to history.
@@ -254,20 +310,37 @@ impl Database {
     }
 }
 
-/// Strips query, fragment and userinfo so stored URLs carry no credentials.
+/// Strips the fragment and any `user:password@` so stored URLs carry no
+/// credentials. The query stays: signed links (`download.php?id=…`) and
+/// magnets (`magnet:?xt=…`) are useless without it.
 pub fn redact_url(url: &str) -> String {
-    let base = url.split(['?', '#']).next().unwrap_or("");
+    let base = url.split('#').next().unwrap_or("");
     let Some((scheme, rest)) = base.split_once("://") else {
         return base.to_string();
     };
-    let (authority, path) = match rest.find('/') {
-        Some(i) => rest.split_at(i),
-        None => (rest, ""),
-    };
+    let end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
     let host = authority
         .rsplit_once('@')
         .map_or(authority, |(_, host)| host);
-    format!("{scheme}://{host}{path}")
+    format!("{scheme}://{host}{tail}")
+}
+
+/// Adds columns introduced after the first release; existing rows keep NULL.
+fn migrate(conn: &Connection) -> Result<(), Error> {
+    let mut stmt = conn.prepare("PRAGMA table_info(downloads)")?;
+    let columns: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<_, _>>()?;
+    for (name, ddl) in [
+        ("kind", "ALTER TABLE downloads ADD COLUMN kind TEXT"),
+        ("extra", "ALTER TABLE downloads ADD COLUMN extra TEXT"),
+    ] {
+        if !columns.iter().any(|column| column == name) {
+            conn.execute(ddl, [])?;
+        }
+    }
+    Ok(())
 }
 
 fn row_to_stored(row: &Row<'_>) -> rusqlite::Result<StoredDownload> {
@@ -286,6 +359,8 @@ fn row_to_stored(row: &Row<'_>) -> rusqlite::Result<StoredDownload> {
         headers: serde_json::from_str(&headers_json).unwrap_or_default(),
         error: row.get("error")?,
         created_at: row.get("created_at")?,
+        kind: row.get("kind")?,
+        extra: row.get("extra")?,
     })
 }
 

@@ -767,5 +767,98 @@ console.log("ok: chrome fail-open on every transport failure");
   console.log("ok: captureVideo=false disables media discovery");
 }
 
+{
+  // small files and excluded sites stay with the browser
+  const state = load("firefox", { minSizeKb: 100, excludedSites: "files.example\nhttps://www.skip.example/" });
+  await settle();
+  const small = dispatchHeaders(state, {
+    url: "https://cdn.example/small.zip",
+    method: "GET",
+    type: "main_frame",
+    statusCode: 200,
+    responseHeaders: [
+      { name: "Content-Type", value: "application/zip" },
+      { name: "Content-Length", value: String(10 * 1024) },
+    ],
+  });
+  assert(!small.cancel, "a file below minSizeKb is left to the browser");
+  const excluded = dispatchHeaders(state, {
+    url: "https://dl.files.example/big.zip",
+    method: "GET",
+    type: "main_frame",
+    statusCode: 200,
+    responseHeaders: [
+      { name: "Content-Type", value: "application/zip" },
+      { name: "Content-Length", value: String(10 * 1024 * 1024) },
+    ],
+  });
+  assert(!excluded.cancel, "a subdomain of an excluded site is left to the browser");
+  const fromPage = dispatchHeaders(state, {
+    url: "https://cdn.example/big.zip",
+    originUrl: "https://skip.example/page",
+    method: "GET",
+    type: "sub_frame",
+    statusCode: 200,
+    responseHeaders: [
+      { name: "Content-Type", value: "application/zip" },
+      { name: "Content-Length", value: String(10 * 1024 * 1024) },
+    ],
+  });
+  assert(!fromPage.cancel, "a download started on an excluded page is left to the browser");
+  const big = dispatchHeaders(state, {
+    url: "https://cdn.example/big.zip",
+    method: "GET",
+    type: "main_frame",
+    statusCode: 200,
+    responseHeaders: [
+      { name: "Content-Type", value: "application/zip" },
+      { name: "Content-Length", value: String(10 * 1024 * 1024) },
+    ],
+  });
+  assert(big.cancel === true, "a large file from another site is still captured");
+  const unknown = dispatchHeaders(state, {
+    url: "https://cdn.example/unknown-size.zip",
+    method: "GET",
+    type: "main_frame",
+    statusCode: 200,
+    responseHeaders: [{ name: "Content-Type", value: "application/zip" }],
+  });
+  assert(unknown.cancel === true, "an unknown size does not block capture");
+  console.log("ok: minimum size and excluded sites");
+}
+
+{
+  // the default quality travels with page videos, an explicit one wins
+  const state = load("chrome", { videoQuality: "720p" });
+  await settle();
+  state.listeners.installed();
+  assert(
+    state.commands.some(([name, id]) => name === "menu" && id === "dwv-download"),
+    "download menu is created",
+  );
+  await state.listeners.menuClicked({
+    menuItemId: "dwv-video-page",
+    pageUrl: "https://www.youtube.com/watch?v=q",
+  });
+  const video = state.requests.find((request) => request.type === "video");
+  assert(video?.quality === "720p", `video quality: ${video?.quality}`);
+  await sendRuntime(state, {
+    type: "handoff",
+    message: { type: "video", url: "https://vimeo.com/1", quality: "audio-mp3" },
+  });
+  const explicit = state.requests.find((request) => request.url === "https://vimeo.com/1");
+  assert(explicit?.quality === "audio-mp3", "explicit quality is kept");
+
+  const plain = load("chrome", { videoQuality: "bogus" });
+  await settle();
+  await plain.listeners.menuClicked({
+    menuItemId: "dwv-video-page",
+    pageUrl: "https://www.youtube.com/watch?v=z",
+  });
+  const sent = plain.requests.find((request) => request.type === "video");
+  assert(sent && !("quality" in sent), "unknown quality keys are not sent");
+  console.log("ok: video quality option");
+}
+
 console.log("extension tests passed");
 Deno.exit(0);

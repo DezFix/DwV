@@ -180,3 +180,100 @@ async fn pause_keeps_part_and_resume_finishes() {
     }
     assert_eq!(std::fs::read(&target).unwrap(), body);
 }
+
+#[tokio::test]
+async fn failed_job_can_be_retried() {
+    let body = test_body(11, 64 * 1024);
+    let server = start_server(body.clone(), true, Duration::ZERO).await;
+    let dir = tempfile::tempdir().unwrap();
+    // the parent "folder" is a file, so the first attempt fails at once
+    let blocker = dir.path().join("sub");
+    std::fs::write(&blocker, b"x").unwrap();
+    let target = blocker.join("retry.bin");
+
+    let (queue, mut events) = Queue::start(QueueConfig::default(), None);
+    let id = queue.add(spec_for(&server, &target, 1)).await.unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let ev = tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .expect("failure timed out")
+            .unwrap();
+        match ev {
+            QueueEvent::Failed { id: fid, .. } => {
+                assert_eq!(fid, id);
+                break;
+            }
+            QueueEvent::Finished { .. } => panic!("must fail while the folder is a file"),
+            _ => {}
+        }
+    }
+
+    std::fs::remove_file(&blocker).unwrap();
+    // give the supervisor a moment to file the job under "failed"
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    queue.resume(id);
+    loop {
+        let ev = tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .expect("retry timed out")
+            .unwrap();
+        match ev {
+            QueueEvent::Finished { id: fid, .. } => {
+                assert_eq!(fid, id);
+                break;
+            }
+            QueueEvent::Failed { error, .. } => panic!("retry failed: {error}"),
+            _ => {}
+        }
+    }
+    assert_eq!(std::fs::read(&target).unwrap(), body);
+}
+
+#[tokio::test]
+async fn add_paused_waits_for_resume() {
+    let body = test_body(12, 32 * 1024);
+    let server = start_server(body.clone(), true, Duration::ZERO).await;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("later.bin");
+
+    let (queue, mut events) = Queue::start(QueueConfig::default(), None);
+    let id = queue
+        .add_paused(spec_for(&server, &target, 1))
+        .await
+        .unwrap();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let mut saw_paused = false;
+    while !saw_paused {
+        match tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            QueueEvent::Paused { id: pid } => {
+                assert_eq!(pid, id);
+                saw_paused = true;
+            }
+            QueueEvent::Started { .. } => panic!("paused job must not start"),
+            _ => {}
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!target.exists());
+
+    queue.resume(id);
+    loop {
+        match tokio::time::timeout_at(deadline, events.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            QueueEvent::Finished { .. } => break,
+            QueueEvent::Failed { error, .. } => panic!("{error}"),
+            _ => {}
+        }
+    }
+    assert_eq!(std::fs::read(&target).unwrap(), body);
+}

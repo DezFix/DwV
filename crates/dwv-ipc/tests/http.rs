@@ -409,10 +409,47 @@ async fn video_is_accepted() {
     assert_eq!(json(&response)["ok"], true);
 
     match rx.recv().await.unwrap() {
-        Request::Video { url, referrer } => {
+        Request::Video {
+            url,
+            referrer,
+            quality,
+        } => {
             assert_eq!(url, "https://www.youtube.com/watch?v=abc");
             assert_eq!(referrer.as_deref(), Some("https://www.youtube.com/"));
+            assert_eq!(quality, None);
         }
         other => panic!("unexpected request: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn video_quality_is_whitelisted() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let addr = serve(0, tx).await.unwrap();
+
+    let ok = raw(
+        addr,
+        &post(
+            addr,
+            "/ipc",
+            r#"{"type":"video","url":"https://vimeo.com/1","quality":"720p"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(json(&ok)["ok"], true, "{ok}");
+    match rx.recv().await.unwrap() {
+        Request::Video { quality, .. } => assert_eq!(quality.as_deref(), Some("720p")),
+        other => panic!("unexpected request: {other:?}"),
+    }
+
+    let bad = raw(
+        addr,
+        &post(
+            addr,
+            "/ipc",
+            r#"{"type":"video","url":"https://vimeo.com/1","quality":"--exec calc"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(json(&bad)["ok"], false, "{bad}");
 }

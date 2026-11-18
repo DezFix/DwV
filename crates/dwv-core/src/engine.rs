@@ -37,6 +37,8 @@ pub struct DownloadSpec {
     pub connections: usize,
     pub headers: Vec<(String, String)>,
     pub limiter: Option<SpeedLimiter>,
+    /// `http://`, `https://` or `socks5://` proxy for every request of this download.
+    pub proxy: Option<String>,
 }
 
 impl DownloadSpec {
@@ -47,6 +49,7 @@ impl DownloadSpec {
             connections: 8,
             headers: Vec::new(),
             limiter: None,
+            proxy: None,
         }
     }
 }
@@ -186,12 +189,15 @@ async fn run_once(
     requested: usize,
     force_plain: bool,
 ) -> Result<Outcome, Error> {
-    let client = reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .user_agent(concat!("DwV/", env!("CARGO_PKG_VERSION")))
         .http1_only()
         .connect_timeout(CONNECT_TIMEOUT)
-        .read_timeout(READ_TIMEOUT)
-        .build()?;
+        .read_timeout(READ_TIMEOUT);
+    if let Some(proxy) = spec.proxy.as_deref().filter(|value| !value.is_empty()) {
+        builder = builder.proxy(reqwest::Proxy::all(proxy)?);
+    }
+    let client = builder.build()?;
     let headers = build_headers(&spec.headers)?;
 
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -231,7 +237,7 @@ async fn run_once(
     let resumed = match read_meta(&meta_path).await {
         Some(meta)
             if segmented
-                && meta.url == redact_url(&spec.url)
+                && meta_url_matches(&meta.url, &spec.url)
                 && meta.etag == info.etag
                 && meta.last_modified == info.last_modified
                 && Some(meta.total) == info.total
@@ -289,7 +295,7 @@ async fn run_once(
     }
 
     if segments.is_empty() {
-        finalize(&part, &spec.target, &tx).await?;
+        finalize(&part, &spec.target, tx).await?;
         return Ok(Outcome::Completed);
     }
 
@@ -394,20 +400,20 @@ async fn run_once(
 
     match result {
         Ok(Outcome::Completed) => {
-            send_final_progress(&tx, &done, total).await;
-            finalize(&part, &spec.target, &tx).await?;
+            send_final_progress(tx, &done, total).await;
+            finalize(&part, &spec.target, tx).await?;
             let _ = fs::remove_file(&meta_path).await;
             Ok(Outcome::Completed)
         }
         Ok(Outcome::Cancelled) => {
-            send_final_progress(&tx, &done, total).await;
+            send_final_progress(tx, &done, total).await;
             if segmented {
                 let _ = persist_meta(&meta_path, &build_meta()).await;
             }
             Ok(Outcome::Cancelled)
         }
         Err(e) => {
-            send_final_progress(&tx, &done, total).await;
+            send_final_progress(tx, &done, total).await;
             if segmented {
                 let _ = persist_meta(&meta_path, &build_meta()).await;
             }
@@ -698,10 +704,7 @@ async fn wait_for_retry(
     }
 }
 
-async fn sleep_or_cancel(
-    delay: Duration,
-    stop: &mut watch::Receiver<bool>,
-) -> Result<(), Error> {
+async fn sleep_or_cancel(delay: Duration, stop: &mut watch::Receiver<bool>) -> Result<(), Error> {
     tokio::select! {
         _ = tokio::time::sleep(delay) => Ok(()),
         _ = stop.changed() => Err(Error::Cancelled),
@@ -743,6 +746,13 @@ fn parse_content_range_total(value: &str) -> Option<u64> {
     } else {
         total.parse().ok()
     }
+}
+
+/// 0.2.x wrote the URL without its query; accept both so an upgrade keeps
+/// the `.part` of an unfinished download.
+fn meta_url_matches(stored: &str, url: &str) -> bool {
+    let current = redact_url(url);
+    stored == current || stored == current.split('?').next().unwrap_or(&current)
 }
 
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
